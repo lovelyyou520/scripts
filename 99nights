@@ -1,10 +1,8 @@
 --[[
     #99nights UI
-    -- Teleport Only Version (Fixed)
+    -- Teleport Only Version (Fixed) - Key System Removed
 --]]
--- [[ CONFIGURATION ]]
-local CORRECT_KEY = "101" -- unused (key system removed)
-local DISCORD_LINK = "https://discord.gg/rajeZXgYdT" -- unused
+
 -- [[ SERVICES ]]
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -1578,10 +1576,9 @@ local function LoadMainHub()
     end)
     table.insert(connections, keyBindConnection)
     
-    triggerNotification("#99NIGHTS LOADED", Color3.fromRGB(255, 255, 255))
+    triggerNotification("#99NIGHTS @fishylvl", Color3.fromRGB(255, 255, 255))
     triggerNotification("VERSION 1.0", Color3.fromRGB(255, 255, 255))
 end
 
 -- Load the main hub immediately (key system removed)
 LoadMainHub()
-
