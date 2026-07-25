@@ -1,1 +1,1587 @@
+--[[
+    #99nights UI
+    -- Teleport Only Version (Fixed)
+--]]
+-- [[ CONFIGURATION ]]
+local CORRECT_KEY = "101" -- unused (key system removed)
+local DISCORD_LINK = "https://discord.gg/rajeZXgYdT" -- unused
+-- [[ SERVICES ]]
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local Workspace = game:GetService("Workspace")
+local SoundService = game:GetService("SoundService")
+local CoreGui = game:GetService("CoreGui")
+
+local LocalPlayer = Players.LocalPlayer
+local Camera = Workspace.CurrentCamera
+local Mouse = LocalPlayer:GetMouse()
+local connections = {}
+local activeTab = nil
+
+local Config = {
+    MenuKey = Enum.KeyCode.RightAlt
+}
+
+-- Prevent duplicate UIs
+pcall(function()
+    if CoreGui:FindFirstChild("99nightsKeySystem") then CoreGui:FindFirstChild("99nightsKeySystem"):Destroy() end
+    if CoreGui:FindFirstChild("99nightsGui") then CoreGui:FindFirstChild("99nightsGui"):Destroy() end
+end)
+pcall(function()
+    local pg = LocalPlayer:FindFirstChildOfClass("PlayerGui")
+    if pg then
+        if pg:FindFirstChild("99nightsKeySystem") then pg:FindFirstChild("99nightsKeySystem"):Destroy() end
+        if pg:FindFirstChild("99nightsGui") then pg:FindFirstChild("99nightsGui"):Destroy() end
+    end
+end)
+
+-- Instance creation helper
+local function create(class, props, parent)
+    local obj = Instance.new(class)
+    for k, v in pairs(props) do
+        obj[k] = v
+    end
+    if parent then obj.Parent = parent end
+    return obj
+end
+
+-- Universal Mobile/PC Dragging Helper
+local function MakeDraggable(frame)
+    local dragging, dragInput, dragStart, startPos
+    
+    frame.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragStart = input.Position
+            startPos = frame.Position
+            
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                end
+            end)
+        end
+    end)
+    
+    frame.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+            dragInput = input
+        end
+    end)
+    
+    UserInputService.InputChanged:Connect(function(input)
+        if input == dragInput and dragging then
+            local delta = input.Position - dragStart
+            frame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+        end
+    end)
+end
+
+local function playClickSound()
+    pcall(function()
+        local sound = Instance.new("Sound", SoundService)
+        sound.SoundId = "rbxassetid://6042053629"
+        sound.Volume = 0.5
+        sound.PlayOnRemove = true
+        sound:Destroy()
+    end)
+end
+
+local function teleportTo(cframe)
+    local char = LocalPlayer.Character
+    if char and char:FindFirstChild("HumanoidRootPart") then
+        char.HumanoidRootPart.CFrame = cframe
+    end
+end
+
+-- FIXED: GetNil now searches by name only (no debug ID needed)
+local function GetNil(Name)
+    for _, Object in ipairs(getnilinstances()) do
+        if Object.Name == Name then
+            return Object
+        end
+    end
+    return nil
+end
+
+-- ==========================================
+-- [[ MAIN HUB LOAD FUNCTION ]]
+-- ==========================================
+local function LoadMainHub()
+    local ScreenGui = create("ScreenGui", {Name = "99nightsGui", ResetOnSpawn = false, ZIndexBehavior = Enum.ZIndexBehavior.Sibling})
+    local guiParent = nil
+    pcall(function()
+        if RunService:IsStudio() then
+            guiParent = LocalPlayer:FindFirstChildOfClass("PlayerGui")
+        else
+            guiParent = game:GetService("CoreGui") or LocalPlayer:FindFirstChildOfClass("PlayerGui")
+        end
+    end)
+    if not guiParent then guiParent = LocalPlayer:WaitForChild("PlayerGui", 8) end
+    ScreenGui.Parent = guiParent
+    
+    local AlertFrameContainer = create("Frame", {Size = UDim2.new(0, 260, 0, 400), Position = UDim2.new(1, -270, 0, 50), BackgroundTransparency = 1}, ScreenGui)
+    create("UIListLayout", {SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 8)}, AlertFrameContainer)
+    
+    local function triggerNotification(message, color)
+        task.spawn(function()
+            playClickSound()
+            local alert = create("Frame", {Size = UDim2.new(1, 0, 0, 45), Position = UDim2.new(1, 10, 0, 0), BackgroundColor3 = Color3.fromRGB(16, 16, 16), BorderSizePixel = 0}, AlertFrameContainer)
+            create("UICorner", {CornerRadius = UDim.new(0, 6)}, alert)
+            create("UIStroke", {Color = Color3.fromRGB(40, 40, 40), Thickness = 1}, alert)
+            
+            local stripe = create("Frame", {Size = UDim2.new(0, 4, 1, 0), Position = UDim2.new(0, 0, 0, 0), BackgroundColor3 = color or Color3.fromRGB(255, 255, 255), BorderSizePixel = 0}, alert)
+            create("UICorner", {CornerRadius = UDim.new(0, 6)}, stripe)
+            
+            create("TextLabel", {Size = UDim2.new(1, -24, 1, 0), Position = UDim2.new(0, 14, 0, 0), BackgroundTransparency = 1, Text = message, TextColor3 = Color3.fromRGB(255, 255, 255), Font = Enum.Font.GothamBold, TextSize = 10, TextXAlignment = Enum.TextXAlignment.Left}, alert)
+            
+            TweenService:Create(alert, TweenInfo.new(0.35, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Position = UDim2.new(0, 0, 0, 0)}):Play()
+            task.wait(3.5)
+            local slideOut = TweenService:Create(alert, TweenInfo.new(0.35, Enum.EasingStyle.Quart, Enum.EasingDirection.In), {Position = UDim2.new(1, 10, 0, 0)})
+            slideOut:Play()
+            slideOut.Completed:Wait()
+            alert:Destroy()
+        end)
+    end
+    
+    local MainFrame = create("Frame", {Size = UDim2.new(0, 640, 0, 480), Position = UDim2.new(0.5, -320, 0.5, -240), BackgroundColor3 = Color3.fromRGB(12, 12, 12), BackgroundTransparency = 0.15, BorderSizePixel = 0, Active = true}, ScreenGui)
+    create("UICorner", {CornerRadius = UDim.new(0, 10)}, MainFrame)
+    create("UIStroke", {Color = Color3.fromRGB(255, 255, 255), Thickness = 1.2, ApplyStrokeMode = Enum.ApplyStrokeMode.Border}, MainFrame)
+    MakeDraggable(MainFrame)
+    
+    local Sidebar = create("Frame", {Size = UDim2.new(0, 160, 1, 0), BackgroundColor3 = Color3.fromRGB(7, 7, 7), BackgroundTransparency = 0.15, BorderSizePixel = 0}, MainFrame)
+    create("UICorner", {CornerRadius = UDim.new(0, 10)}, Sidebar)
+    create("Frame", {Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(0, 160, 0, 0), BackgroundColor3 = Color3.fromRGB(30, 30, 30), BorderSizePixel = 0}, MainFrame)
+    
+    local LogoFrame = create("Frame", {Size = UDim2.new(1, 0, 0, 70), BackgroundTransparency = 1}, Sidebar)
+    create("TextLabel", {Size = UDim2.new(1, 0, 0, 40), Position = UDim2.new(0, 0, 0, 10), BackgroundTransparency = 1, Text = "  #99nights", TextColor3 = Color3.fromRGB(255, 255, 255), Font = Enum.Font.GothamBlack, TextSize = 18}, LogoFrame)
+    create("TextLabel", {Size = UDim2.new(1, 0, 0, 15), Position = UDim2.new(0, 0, 0, 40), BackgroundTransparency = 1, Text = "VERSION 1.0", TextColor3 = Color3.fromRGB(150, 150, 150), Font = Enum.Font.Code, TextSize = 9}, LogoFrame)
+    
+    local CloseBtn = create("TextButton", {Size = UDim2.new(0, 34, 0, 34), Position = UDim2.new(1, -44, 0, 10), BackgroundColor3 = Color3.fromRGB(16, 16, 16), Text = "X", TextColor3 = Color3.fromRGB(180, 180, 180), Font = Enum.Font.GothamBold, TextSize = 12}, MainFrame)
+    create("UICorner", {CornerRadius = UDim.new(0, 6)}, CloseBtn)
+    local CloseStroke = create("UIStroke", {Color = Color3.fromRGB(30, 30, 30), Thickness = 1}, CloseBtn)
+    
+    CloseBtn.MouseButton1Click:Connect(function() playClickSound() ScreenGui:Destroy() end)
+    CloseBtn.MouseEnter:Connect(function() 
+        TweenService:Create(CloseBtn, TweenInfo.new(0.15), {BackgroundColor3 = Color3.fromRGB(255, 50, 50), TextColor3 = Color3.fromRGB(255, 255, 255)}):Play() 
+        TweenService:Create(CloseStroke, TweenInfo.new(0.15), {Color = Color3.fromRGB(255, 50, 50)}):Play()
+    end)
+    CloseBtn.MouseLeave:Connect(function() 
+        TweenService:Create(CloseBtn, TweenInfo.new(0.15), {BackgroundColor3 = Color3.fromRGB(16, 16, 16), TextColor3 = Color3.fromRGB(180, 180, 180)}):Play() 
+        TweenService:Create(CloseStroke, TweenInfo.new(0.15), {Color = Color3.fromRGB(30, 30, 30)}):Play()
+    end)
+    
+    local MinimizeBtn = create("TextButton", {Size = UDim2.new(0, 34, 0, 34), Position = UDim2.new(1, -88, 0, 10), BackgroundColor3 = Color3.fromRGB(16, 16, 16), Text = "—", TextColor3 = Color3.fromRGB(180, 180, 180), Font = Enum.Font.GothamBold, TextSize = 12}, MainFrame)
+    create("UICorner", {CornerRadius = UDim.new(0, 6)}, MinimizeBtn)
+    local MinimizeStroke = create("UIStroke", {Color = Color3.fromRGB(30, 30, 30), Thickness = 1}, MinimizeBtn)
+    
+    local minimized = false
+    local restoreFrame = nil
+    
+    MinimizeBtn.MouseButton1Click:Connect(function()
+        playClickSound()
+        if minimized then return end
+        minimized = true
+        MainFrame.Visible = false
+        
+        restoreFrame = create("Frame", {
+            Size = UDim2.new(0, 200, 0, 40),
+            Position = UDim2.new(0.5, -100, 0, 10),
+            BackgroundColor3 = Color3.fromRGB(12, 12, 12),
+            BackgroundTransparency = 0.15,
+            BorderSizePixel = 0,
+            Active = true
+        }, ScreenGui)
+        create("UICorner", {CornerRadius = UDim.new(0, 6)}, restoreFrame)
+        create("UIStroke", {Color = Color3.fromRGB(255, 255, 255), Thickness = 1.2, ApplyStrokeMode = Enum.ApplyStrokeMode.Border}, restoreFrame)
+        MakeDraggable(restoreFrame)
+        
+        local restoreText = create("TextLabel", {
+            Size = UDim2.new(0.7, 0, 1, 0),
+            Position = UDim2.new(0, 10, 0, 0),
+            BackgroundTransparency = 1,
+            Text = "#99nights [Minimized]",
+            TextColor3 = Color3.fromRGB(255, 255, 255),
+            Font = Enum.Font.GothamBold,
+            TextSize = 11,
+            TextXAlignment = Enum.TextXAlignment.Left
+        }, restoreFrame)
+        
+        local restoreBtn = create("TextButton", {
+            Size = UDim2.new(0, 50, 0, 28),
+            Position = UDim2.new(1, -58, 0.5, -14),
+            BackgroundColor3 = Color3.fromRGB(16, 16, 16),
+            Text = "▲",
+            TextColor3 = Color3.fromRGB(255, 255, 255),
+            Font = Enum.Font.GothamBold,
+            TextSize = 12
+        }, restoreFrame)
+        create("UICorner", {CornerRadius = UDim.new(0, 4)}, restoreBtn)
+        local restoreBtnStroke = create("UIStroke", {Color = Color3.fromRGB(30, 30, 30), Thickness = 1}, restoreBtn)
+        
+        restoreBtn.MouseButton1Click:Connect(function()
+            playClickSound()
+            if restoreFrame then
+                restoreFrame:Destroy()
+                restoreFrame = nil
+            end
+            minimized = false
+            MainFrame.Visible = true
+        end)
+        restoreBtn.MouseEnter:Connect(function()
+            TweenService:Create(restoreBtn, TweenInfo.new(0.15), {BackgroundColor3 = Color3.fromRGB(255, 255, 255), TextColor3 = Color3.fromRGB(10, 10, 10)}):Play()
+            TweenService:Create(restoreBtnStroke, TweenInfo.new(0.15), {Color = Color3.fromRGB(255, 255, 255)}):Play()
+        end)
+        restoreBtn.MouseLeave:Connect(function()
+            TweenService:Create(restoreBtn, TweenInfo.new(0.15), {BackgroundColor3 = Color3.fromRGB(16, 16, 16), TextColor3 = Color3.fromRGB(255, 255, 255)}):Play()
+            TweenService:Create(restoreBtnStroke, TweenInfo.new(0.15), {Color = Color3.fromRGB(30, 30, 30)}):Play()
+        end)
+    end)
+    MinimizeBtn.MouseEnter:Connect(function()
+        TweenService:Create(MinimizeBtn, TweenInfo.new(0.15), {BackgroundColor3 = Color3.fromRGB(255, 255, 255), TextColor3 = Color3.fromRGB(10, 10, 10)}):Play()
+        TweenService:Create(MinimizeStroke, TweenInfo.new(0.15), {Color = Color3.fromRGB(255, 255, 255)}):Play()
+    end)
+    MinimizeBtn.MouseLeave:Connect(function()
+        TweenService:Create(MinimizeBtn, TweenInfo.new(0.15), {BackgroundColor3 = Color3.fromRGB(16, 16, 16), TextColor3 = Color3.fromRGB(180, 180, 180)}):Play()
+        TweenService:Create(MinimizeStroke, TweenInfo.new(0.15), {Color = Color3.fromRGB(30, 30, 30)}):Play()
+    end)
+    
+    local TabContainer = create("Frame", {Size = UDim2.new(1, 0, 1, -80), Position = UDim2.new(0, 0, 0, 80), BackgroundTransparency = 1}, Sidebar)
+    create("UIListLayout", {SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 4)}, TabContainer)
+    create("UIPadding", {PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10)}, TabContainer)
+    
+    local PageContainer = create("Frame", {Size = UDim2.new(1, -180, 1, -65), Position = UDim2.new(0, 170, 0, 55), BackgroundTransparency = 1}, MainFrame)
+    local pages = {}
+    
+    local function CreatePage(name)
+        local page = create("ScrollingFrame", {Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 2, ScrollBarImageColor3 = Color3.fromRGB(255, 255, 255), ScrollBarImageTransparency = 0.5, AutomaticCanvasSize = Enum.AutomaticSize.Y, CanvasSize = UDim2.new(0, 0, 0, 0), Visible = false}, PageContainer)
+        create("UIListLayout", {SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 8)}, page)
+        create("UIPadding", {PaddingRight = UDim.new(0, 10), PaddingTop = UDim.new(0, 4), PaddingBottom = UDim.new(0, 10)}, page)
+        pages[name] = page
+        return page
+    end
+    
+    -- Create all pages
+    local autoBurnPage = CreatePage("Auto Burn")
+    local missingKidsPage = CreatePage("Missing Kids")
+    local teleportPage = CreatePage("Teleport")
+    local resourcesPage = CreatePage("Resources")
+    local combatPage = CreatePage("Combat")
+    local craftPage = CreatePage("Craft")
+    local trollPage = CreatePage("Troll")
+    local infoPage = CreatePage("Info")
+    
+    -- Tab selection function
+    local function SelectTab(tabName, btn)
+        activeTab = tabName
+        for name, page in pairs(pages) do page.Visible = (name == tabName) end
+        for _, child in ipairs(TabContainer:GetChildren()) do
+            if child:IsA("TextButton") then
+                if child == btn then
+                    TweenService:Create(child, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(255, 255, 255), TextColor3 = Color3.fromRGB(0, 0, 0)}):Play()
+                    if child:FindFirstChild("UIStroke") then child.UIStroke.Color = Color3.fromRGB(255, 255, 255) end
+                else
+                    TweenService:Create(child, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(7, 7, 7), TextColor3 = Color3.fromRGB(160, 160, 160)}):Play()
+                    if child:FindFirstChild("UIStroke") then child.UIStroke.Color = Color3.fromRGB(25, 25, 25) end
+                end
+            end
+        end
+    end
+    
+    local function AddTab(name, layoutOrder)
+        local btn = create("TextButton", {Size = UDim2.new(1, 0, 0, 34), BackgroundColor3 = Color3.fromRGB(7, 7, 7), Text = "  " .. name, TextColor3 = Color3.fromRGB(160, 160, 160), Font = Enum.Font.GothamBold, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left, LayoutOrder = layoutOrder}, TabContainer)
+        create("UICorner", {CornerRadius = UDim.new(0, 5)}, btn)
+        create("UIStroke", {Color = Color3.fromRGB(25, 25, 25), Thickness = 1}, btn)
+        
+        btn.MouseButton1Click:Connect(function() playClickSound() SelectTab(name, btn) end)
+        btn.MouseEnter:Connect(function()
+            if activeTab ~= name then
+                TweenService:Create(btn, TweenInfo.new(0.15), {BackgroundColor3 = Color3.fromRGB(22, 22, 22), TextColor3 = Color3.fromRGB(255, 255, 255)}):Play()
+            end
+        end)
+        btn.MouseLeave:Connect(function()
+            if activeTab ~= name then
+                TweenService:Create(btn, TweenInfo.new(0.15), {BackgroundColor3 = Color3.fromRGB(7, 7, 7), TextColor3 = Color3.fromRGB(160, 160, 160)}):Play()
+            end
+        end)
+        return btn
+    end
+    
+    -- Add all tabs
+    local firstBtn = AddTab("Teleport", 1)
+    AddTab("Auto Burn", 2)
+    AddTab("Missing Kids", 3)
+    AddTab("Resources", 4)
+    AddTab("Combat", 5)
+    AddTab("Craft", 6)
+    AddTab("Troll", 7)
+    AddTab("Info", 8)
+    SelectTab("Teleport", firstBtn)
+    
+    -- ===== DEFINE UI HELPER FUNCTIONS =====
+    local function AddSection(parentPage, text)
+        local container = create("Frame", {Size = UDim2.new(1, 0, 0, 0), BackgroundColor3 = Color3.fromRGB(16, 16, 16), BorderSizePixel = 0}, parentPage)
+        create("UICorner", {CornerRadius = UDim.new(0, 6)}, container)
+        create("UIStroke", {Color = Color3.fromRGB(28, 28, 28), Thickness = 1}, container)
+        
+        local layout = create("UIListLayout", {SortOrder = Enum.SortOrder.LayoutOrder}, container)
+        layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+            container.Size = UDim2.new(1, 0, 0, layout.AbsoluteContentSize.Y + 4)
+        end)
+        
+        create("TextLabel", {Size = UDim2.new(1, 0, 0, 26), BackgroundColor3 = Color3.fromRGB(10, 10, 10), BorderSizePixel = 0, Text = "   " .. string.upper(text), TextColor3 = Color3.fromRGB(255, 255, 255), Font = Enum.Font.GothamBold, TextSize = 10, TextXAlignment = Enum.TextXAlignment.Left, LayoutOrder = 0}, container)
+        create("Frame", {Size = UDim2.new(1, 0, 0, 1), BackgroundColor3 = Color3.fromRGB(28, 28, 28), BorderSizePixel = 0, LayoutOrder = 1}, container)
+        
+        local content = create("Frame", {Size = UDim2.new(1, 0, 0, 0), BackgroundTransparency = 1, LayoutOrder = 2}, container)
+        local contentLayout = create("UIListLayout", {SortOrder = Enum.SortOrder.LayoutOrder}, content)
+        contentLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+            content.Size = UDim2.new(1, 0, 0, contentLayout.AbsoluteContentSize.Y)
+        end)
+        
+        return content
+    end
+    
+    local function addRowDivider(rowFrame)
+        local count = 0
+        for _, child in ipairs(rowFrame.Parent:GetChildren()) do
+            if child:IsA("Frame") or child:IsA("TextButton") then count = count + 1 end
+        end
+        if count > 1 then
+            create("Frame", {Size = UDim2.new(1, -20, 0, 1), Position = UDim2.new(0, 10, 0, 0), BackgroundColor3 = Color3.fromRGB(25, 25, 25), BorderSizePixel = 0, ZIndex = 2}, rowFrame)
+        end
+    end
+    
+    local function AddButton(parentCard, buttonText, callback)
+        local btn = create("TextButton", {Size = UDim2.new(1, 0, 0, 34), BackgroundTransparency = 1, Text = buttonText, TextColor3 = Color3.fromRGB(255, 255, 255), Font = Enum.Font.GothamBold, TextSize = 12}, parentCard)
+        addRowDivider(btn)
+        
+        btn.MouseButton1Click:Connect(function() playClickSound() if callback then callback() end end)
+        btn.MouseEnter:Connect(function() TweenService:Create(btn, TweenInfo.new(0.15), {BackgroundTransparency = 0.8, BackgroundColor3 = Color3.fromRGB(255, 255, 255), TextColor3 = Color3.fromRGB(255, 255, 255)}):Play() end)
+        btn.MouseLeave:Connect(function() TweenService:Create(btn, TweenInfo.new(0.15), {BackgroundTransparency = 1, TextColor3 = Color3.fromRGB(255, 255, 255)}):Play() end)
+        return btn
+    end
+    
+    local function AddToggle(parentCard, text, callback)
+        local btn = create("TextButton", {Size = UDim2.new(1, 0, 0, 34), BackgroundTransparency = 1, Text = text .. " [OFF]", TextColor3 = Color3.fromRGB(255, 255, 255), Font = Enum.Font.GothamBold, TextSize = 12}, parentCard)
+        addRowDivider(btn)
+        
+        local toggled = false
+        btn.MouseButton1Click:Connect(function() 
+            playClickSound() 
+            toggled = not toggled
+            if toggled then
+                btn.Text = text .. " [ON]"
+                btn.TextColor3 = Color3.fromRGB(100, 255, 100)
+            else
+                btn.Text = text .. " [OFF]"
+                btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+            end
+            if callback then callback(toggled) end 
+        end)
+        btn.MouseEnter:Connect(function() TweenService:Create(btn, TweenInfo.new(0.15), {BackgroundTransparency = 0.8, BackgroundColor3 = Color3.fromRGB(255, 255, 255), TextColor3 = btn.TextColor3}):Play() end)
+        btn.MouseLeave:Connect(function() TweenService:Create(btn, TweenInfo.new(0.15), {BackgroundTransparency = 1}):Play() end)
+        return btn
+    end
+    
+    local function AddDropdown(parentCard, text, options, callback)
+        local container = create("Frame", {Size = UDim2.new(1, 0, 0, 34), BackgroundTransparency = 1}, parentCard)
+        addRowDivider(container)
+        
+        local mainBtn = create("TextButton", {Size = UDim2.new(1, 0, 0, 34), BackgroundTransparency = 1, Text = text .. " [+]", TextColor3 = Color3.fromRGB(255, 255, 255), Font = Enum.Font.GothamBold, TextSize = 12}, container)
+        
+        local dropFrame = create("Frame", {Size = UDim2.new(1, 0, 0, 0), Position = UDim2.new(0, 0, 0, 34), BackgroundTransparency = 1, Visible = false, ClipsDescendants = true}, container)
+        local dropLayout = create("UIListLayout", {SortOrder = Enum.SortOrder.LayoutOrder}, dropFrame)
+        
+        local function updateSize()
+            if dropFrame.Visible then
+                dropFrame.Size = UDim2.new(1, 0, 0, dropLayout.AbsoluteContentSize.Y)
+                container.Size = UDim2.new(1, 0, 0, 34 + dropLayout.AbsoluteContentSize.Y)
+            else
+                dropFrame.Size = UDim2.new(1, 0, 0, 0)
+                container.Size = UDim2.new(1, 0, 0, 34)
+            end
+        end
+        dropLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(updateSize)
+        
+        mainBtn.MouseButton1Click:Connect(function()
+            playClickSound()
+            dropFrame.Visible = not dropFrame.Visible
+            mainBtn.Text = text .. (dropFrame.Visible and " [-]" or " [+]")
+            updateSize()
+        end)
+        
+        for _, opt in ipairs(options) do
+            local optBtn = create("TextButton", {Size = UDim2.new(1, 0, 0, 30), BackgroundColor3 = Color3.fromRGB(20, 20, 20), BackgroundTransparency=0.5, Text = "  " .. opt.Name, TextColor3 = Color3.fromRGB(255, 255, 255), Font = Enum.Font.Gotham, TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left}, dropFrame)
+            
+            optBtn.MouseButton1Click:Connect(function()
+                playClickSound()
+                if callback then callback(opt.Object) end
+            end)
+            optBtn.MouseEnter:Connect(function() TweenService:Create(optBtn, TweenInfo.new(0.15), {BackgroundColor3 = Color3.fromRGB(30, 30, 30)}):Play() end)
+            optBtn.MouseLeave:Connect(function() TweenService:Create(optBtn, TweenInfo.new(0.15), {BackgroundColor3 = Color3.fromRGB(20, 20, 20)}):Play() end)
+        end
+        return container
+    end
+    
+    local function AddMultiDropdown(parentCard, text, options, callback, sharedSelectionTable)
+        local selected = sharedSelectionTable or {}
+        local container = create("Frame", {Size = UDim2.new(1, 0, 0, 34), BackgroundTransparency = 1}, parentCard)
+        addRowDivider(container)
+        
+        local mainBtn = create("TextButton", {Size = UDim2.new(1, 0, 0, 34), BackgroundTransparency = 1, Text = text .. " [+]", TextColor3 = Color3.fromRGB(255, 255, 255), Font = Enum.Font.GothamBold, TextSize = 12}, container)
+        
+        local dropFrame = create("Frame", {Size = UDim2.new(1, 0, 0, 0), Position = UDim2.new(0, 0, 0, 34), BackgroundTransparency = 1, Visible = false, ClipsDescendants = true}, container)
+        local dropLayout = create("UIListLayout", {SortOrder = Enum.SortOrder.LayoutOrder}, dropFrame)
+        
+        local function updateSize()
+            if dropFrame.Visible then
+                dropFrame.Size = UDim2.new(1, 0, 0, dropLayout.AbsoluteContentSize.Y)
+                container.Size = UDim2.new(1, 0, 0, 34 + dropLayout.AbsoluteContentSize.Y)
+            else
+                dropFrame.Size = UDim2.new(1, 0, 0, 0)
+                container.Size = UDim2.new(1, 0, 0, 34)
+            end
+        end
+        dropLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(updateSize)
+        
+        mainBtn.MouseButton1Click:Connect(function()
+            playClickSound()
+            dropFrame.Visible = not dropFrame.Visible
+            mainBtn.Text = text .. (dropFrame.Visible and " [-]" or " [+]")
+            updateSize()
+        end)
+        
+        for _, opt in ipairs(options) do
+            local optBtn = create("TextButton", {Size = UDim2.new(1, 0, 0, 30), BackgroundColor3 = Color3.fromRGB(20, 20, 20), BackgroundTransparency=0.5, Text = "  " .. opt, TextColor3 = Color3.fromRGB(255, 255, 255), Font = Enum.Font.Gotham, TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left}, dropFrame)
+            local check = create("Frame", {Size = UDim2.new(0, 14, 0, 14), Position = UDim2.new(1, -24, 0.5, -7), BackgroundColor3 = Color3.fromRGB(30, 30, 30)}, optBtn)
+            create("UICorner", {CornerRadius=UDim.new(0,4)}, check)
+            
+            local isSel = selected[opt] or false
+            if isSel then
+                check.BackgroundColor3 = Color3.fromRGB(100, 255, 100)
+            end
+            
+            optBtn.MouseButton1Click:Connect(function()
+                playClickSound()
+                isSel = not isSel
+                if isSel then
+                    check.BackgroundColor3 = Color3.fromRGB(100, 255, 100)
+                    selected[opt] = true
+                else
+                    check.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+                    selected[opt] = nil
+                end
+                if callback then callback(selected) end
+            end)
+        end
+        return container
+    end
+    
+    -- ===== FILL PAGES =====
+    
+    -- Info Tab
+    local infoSection = AddSection(infoPage, "Notice")
+    create("TextLabel", {
+        Size = UDim2.new(1, -20, 0, 60),
+        Position = UDim2.new(0, 10, 0, 10),
+        BackgroundTransparency = 1,
+        Text = "Only currently available items are listed in the script.",
+        TextColor3 = Color3.fromRGB(255, 255, 255),
+        Font = Enum.Font.GothamBold,
+        TextSize = 14,
+        TextWrapped = true,
+        TextXAlignment = Enum.TextXAlignment.Left
+    }, infoSection)
+    
+    -- Missing Kids Page
+    local missingKidsSection = AddSection(missingKidsPage, "Missing Kids Locations")
+    
+    local targetKidsList = {"DinoKid", "KoalaKid", "KrakenKid", "SquidKid"}
+    local lostChildNames = {"Lost Child", "Lost Child2", "Lost Child3", "Lost Child4"}
+    
+    local function fetchMissingKids()
+        local kids = {}
+        local missingFolder = workspace:FindFirstChild("MissingKids") or (workspace:FindFirstChild("Map") and workspace.Map:FindFirstChild("MissingKids"))
+        local charsFolder = workspace:FindFirstChild("Characters")
+        
+        local activePhysicalKids = {}
+        if charsFolder then
+            for _, childName in ipairs(lostChildNames) do
+                local charObj = charsFolder:FindFirstChild(childName)
+                if charObj then
+                    local kidPos = nil
+                    if charObj:IsA("Model") and charObj.PrimaryPart then
+                        kidPos = charObj.PrimaryPart.Position
+                    elseif charObj:IsA("BasePart") then
+                        kidPos = charObj.Position
+                    else
+                        local part = charObj:FindFirstChildWhichIsA("BasePart", true)
+                        if part then kidPos = part.Position end
+                    end
+                    
+                    if kidPos then
+                        table.insert(activePhysicalKids, {Name = childName, Object = charObj, Position = kidPos, IsPhysical = true})
+                    end
+                end
+            end
+        end
+        
+        if missingFolder then
+            for i, kidName in ipairs(targetKidsList) do
+                local physicalMatch = activePhysicalKids[i]
+                if physicalMatch then
+                    table.insert(kids, {
+                        Name = kidName .. " (" .. physicalMatch.Name .. ")", 
+                        Object = physicalMatch.Object, 
+                        Position = physicalMatch.Position,
+                        IsPhysical = true
+                    })
+                else
+                    local kidModel = missingFolder:FindFirstChild(kidName)
+                    if kidModel then
+                        local kPos = nil
+                        if kidModel:IsA("Model") and kidModel.PrimaryPart then
+                            kPos = kidModel.PrimaryPart.Position
+                        elseif kidModel:IsA("BasePart") then
+                            kPos = kidModel.Position
+                        else
+                            local p = kidModel:FindFirstChildWhichIsA("BasePart", true)
+                            if p then kPos = p.Position end
+                        end
+                        if kPos then
+                            table.insert(kids, {Name = kidName, Object = kidModel, Position = kPos, IsPhysical = true})
+                        else
+                            local kidPos = missingFolder:GetAttribute(kidName)
+                            if kidPos then
+                                table.insert(kids, {Name = kidName, Object = kidName, Position = kidPos, IsPhysical = false})
+                            end
+                        end
+                    else
+                        local kidPos = missingFolder:GetAttribute(kidName)
+                        if kidPos then
+                            table.insert(kids, {Name = kidName, Object = kidName, Position = kidPos, IsPhysical = false})
+                        end
+                    end
+                end
+            end
+        end
+        return kids
+    end
+    
+    local missingKidsList = fetchMissingKids()
+    local selectedKidData = nil
+    
+    local function getExactPosition(kidData)
+        local exactPos = nil
+        if kidData.IsPhysical and kidData.Object and kidData.Object.Parent then
+            if kidData.Object:IsA("Model") and kidData.Object.PrimaryPart then
+                exactPos = kidData.Object.PrimaryPart.Position
+            elseif kidData.Object:IsA("BasePart") then
+                exactPos = kidData.Object.Position
+            else
+                local part = kidData.Object:FindFirstChildWhichIsA("BasePart", true)
+                if part then exactPos = part.Position end
+            end
+        elseif not kidData.IsPhysical then
+            local folder = workspace:FindFirstChild("MissingKids") or (workspace:FindFirstChild("Map") and workspace.Map:FindFirstChild("MissingKids"))
+            if folder then
+                local model = folder:FindFirstChild(kidData.Object)
+                if model then
+                    if model:IsA("Model") and model.PrimaryPart then
+                        exactPos = model.PrimaryPart.Position
+                    elseif model:IsA("BasePart") then
+                        exactPos = model.Position
+                    else
+                        local part = model:FindFirstChildWhichIsA("BasePart", true)
+                        if part then exactPos = part.Position end
+                    end
+                else
+                    exactPos = folder:GetAttribute(kidData.Object)
+                end
+            end
+        end
+        return exactPos or kidData.Position
+    end
+
+    local function rescueKid(kidData)
+        local exactPos = getExactPosition(kidData)
+        if not exactPos then
+            triggerNotification("Kid position not found for " .. kidData.Name, Color3.fromRGB(255, 100, 100))
+            return false
+        end
+        teleportTo(CFrame.new(exactPos))
+        triggerNotification("Teleported to " .. kidData.Name, Color3.fromRGB(100, 255, 100))
+        task.wait(0.2)
+        
+        local success = pcall(function()
+            local rs = game:GetService("ReplicatedStorage")
+            local inventory = LocalPlayer:FindFirstChild("Inventory")
+            local sack = nil
+            if inventory then
+                for _, item in ipairs(inventory:GetChildren()) do
+                    if string.find(string.lower(item.Name), "sack") then
+                        sack = item
+                        break
+                    end
+                end
+            end
+            
+            if not sack then
+                triggerNotification("No sack found in Inventory!", Color3.fromRGB(255, 100, 100))
+                return
+            end
+            
+            local targetObj = nil
+            if kidData.IsPhysical and kidData.Object then
+                targetObj = kidData.Object
+            else
+                local folder = workspace:FindFirstChild("MissingKids") or (workspace:FindFirstChild("Map") and workspace.Map:FindFirstChild("MissingKids"))
+                if folder then
+                    targetObj = folder:FindFirstChild(kidData.Object) or folder
+                end
+            end
+            
+            if not targetObj then
+                triggerNotification("Target Object not found!", Color3.fromRGB(255, 100, 100))
+                return
+            end
+            
+            pcall(function()
+                if rs.RemoteEvents.RequestHotbarItem:IsA("RemoteFunction") then
+                    rs.RemoteEvents.RequestHotbarItem:InvokeServer(sack)
+                else
+                    rs.RemoteEvents.RequestHotbarItem:FireServer(sack)
+                end
+            end)
+            task.wait(0.5)
+            
+            pcall(function()
+                if rs.RemoteEvents.RequestBagStoreItem:IsA("RemoteFunction") then
+                    rs.RemoteEvents.RequestBagStoreItem:InvokeServer(sack, targetObj)
+                else
+                    rs.RemoteEvents.RequestBagStoreItem:FireServer(sack, targetObj)
+                end
+            end)
+            task.wait(0.8)
+            
+            teleportTo(CFrame.new(17.850570678710938, 4.000000953674316 + 5, 1.3775887489318848))
+            task.wait(0.2)
+            
+            rs.RemoteEvents.RequestBagDropItem:FireServer(sack, targetObj, false)
+            triggerNotification("Rescued and dropped at Camp!", Color3.fromRGB(100, 255, 100))
+        end)
+        return success
+    end
+
+    local missingKidsDropdown = AddDropdown(missingKidsSection, "Teleport to Missing Kid", missingKidsList, function(targetName)
+        for _, k in ipairs(missingKidsList) do
+            if k.Name == targetName or k.Object == targetName then
+                selectedKidData = k
+                rescueKid(k)
+                return
+            end
+        end
+        triggerNotification("Kid not found in list!", Color3.fromRGB(255, 100, 100))
+    end)
+    
+    AddButton(missingKidsSection, "Refresh List", function()
+        missingKidsList = fetchMissingKids()
+        if missingKidsDropdown then missingKidsDropdown:Destroy() end
+        missingKidsDropdown = AddDropdown(missingKidsSection, "Teleport to Missing Kid", missingKidsList, function(targetName)
+            for _, k in ipairs(missingKidsList) do
+                if k.Name == targetName or k.Object == targetName then
+                    selectedKidData = k
+                    rescueKid(k)
+                    return
+                end
+            end
+            triggerNotification("Kid not found in list!", Color3.fromRGB(255, 100, 100))
+        end)
+        missingKidsDropdown.LayoutOrder = 1
+        triggerNotification("Refreshed Missing Kids List!", Color3.fromRGB(100, 255, 100))
+    end)
+
+    local autoRescueAllActive = false
+    AddToggle(missingKidsSection, "Auto Rescue All", function(state)
+        autoRescueAllActive = state
+        if state then
+            task.spawn(function()
+                while autoRescueAllActive do
+                    local kids = fetchMissingKids()
+                    for _, kidData in ipairs(kids) do
+                        if not autoRescueAllActive then break end
+                        local pos = getExactPosition(kidData)
+                        if pos then
+                            rescueKid(kidData)
+                        end
+                        task.wait(1)
+                    end
+                    task.wait(5)
+                end
+            end)
+        end
+    end)
+
+    local loopUntilBaggedActive = false
+    AddToggle(missingKidsSection, "Loop Until Bagged (Selected)", function(state)
+        loopUntilBaggedActive = state
+        if state then
+            if not selectedKidData then
+                triggerNotification("Select a kid first!", Color3.fromRGB(255, 100, 100))
+                loopUntilBaggedActive = false
+                return
+            end
+            task.spawn(function()
+                local kidName = selectedKidData.Name
+                while loopUntilBaggedActive do
+                    local bag = LocalPlayer:FindFirstChild("ItemBag")
+                    if bag and bag:FindFirstChild(kidName) then
+                        triggerNotification(kidName .. " is already in your bag!", Color3.fromRGB(100, 255, 100))
+                        break
+                    end
+                    rescueKid(selectedKidData)
+                    task.wait(2)
+                end
+                loopUntilBaggedActive = false
+            end)
+        end
+    end)
+
+    AddButton(missingKidsSection, "Stop All Auto Processes", function()
+        autoRescueAllActive = false
+        loopUntilBaggedActive = false
+        triggerNotification("All auto processes stopped.", Color3.fromRGB(255, 100, 100))
+    end)
+
+    -- Auto Burn Page
+    local autoBurnSection = AddSection(autoBurnPage, "Auto Burn Controls")
+    local autoBurnActive = false
+    local selectedBurnItems = {}
+    
+    local function fetchCategorizedItems()
+        local itemsList = {}
+        local rs = game:GetService("ReplicatedStorage")
+        if rs:FindFirstChild("Items") then
+            for _, item in ipairs(rs.Items:GetChildren()) do
+                table.insert(itemsList, item.Name)
+            end
+        end
+        
+        if #itemsList == 0 then
+            if workspace:FindFirstChild("Items") then
+                for _, item in ipairs(workspace.Items:GetChildren()) do
+                    table.insert(itemsList, item.Name)
+                end
+            else
+                itemsList = {
+                    "Log", "Coal", "Fuel Canister", "Oil Barrel", "Stick", "Leaves",
+                    "Apple", "Bandage", "Medkit", "Water", "Axe", "Sword", "Spear", "Mushroom", "Berry"
+                }
+            end
+        end
+        
+        local uniqueItems = {}
+        local hash = {}
+        for _, v in ipairs(itemsList) do
+            if not hash[v] then
+                table.insert(uniqueItems, v)
+                hash[v] = true
+            end
+        end
+        
+        local categories = {
+            Weapons = {},
+            Consumables = {},
+            Resources = {},
+            Other = {}
+        }
+        
+        for _, name in ipairs(uniqueItems) do
+            local lowerName = string.lower(name)
+            if string.find(lowerName, "axe") or string.find(lowerName, "sword") or string.find(lowerName, "spear") or string.find(lowerName, "bat") or string.find(lowerName, "knife") or string.find(lowerName, "gun") or string.find(lowerName, "hammer") or string.find(lowerName, "club") or string.find(lowerName, "machete") then
+                table.insert(categories.Weapons, name)
+            elseif string.find(lowerName, "apple") or string.find(lowerName, "bandage") or string.find(lowerName, "medkit") or string.find(lowerName, "water") or string.find(lowerName, "food") or string.find(lowerName, "meat") or string.find(lowerName, "berry") or string.find(lowerName, "drink") or string.find(lowerName, "cola") or string.find(lowerName, "soup") or string.find(lowerName, "mushroom") then
+                table.insert(categories.Consumables, name)
+            elseif string.find(lowerName, "log") or string.find(lowerName, "stick") or string.find(lowerName, "coal") or string.find(lowerName, "stone") or string.find(lowerName, "rock") or string.find(lowerName, "leaf") or string.find(lowerName, "leaves") or string.find(lowerName, "scrap") or string.find(lowerName, "metal") or string.find(lowerName, "wood") or string.find(lowerName, "fuel") or string.find(lowerName, "oil") then
+                table.insert(categories.Resources, name)
+            else
+                table.insert(categories.Other, name)
+            end
+        end
+        
+        for _, list in pairs(categories) do table.sort(list) end
+        return categories
+    end
+    
+    local function createCategorizedDropdowns(parentSection, titlePrefix, categorizedItems, sharedSelectedTable, layoutOrderStart)
+        local containers = {}
+        local order = layoutOrderStart
+        for _, category in ipairs({"Weapons", "Consumables", "Resources", "Other"}) do
+            local items = categorizedItems[category]
+            if items and #items > 0 then
+                local dd = AddMultiDropdown(parentSection, titlePrefix .. " (" .. category .. ")", items, nil, sharedSelectedTable)
+                dd.LayoutOrder = order
+                table.insert(containers, dd)
+                order = order + 1
+            end
+        end
+        return containers
+    end
+    
+    local allCategorizedItems = fetchCategorizedItems()
+    local burnDropdowns = createCategorizedDropdowns(autoBurnSection, "Burn", allCategorizedItems, selectedBurnItems, 1)
+    
+    AddButton(autoBurnSection, "Refresh Item List", function()
+        allCategorizedItems = fetchCategorizedItems()
+        selectedBurnItems = {}
+        for _, dd in ipairs(burnDropdowns) do if dd then dd:Destroy() end end
+        burnDropdowns = createCategorizedDropdowns(autoBurnSection, "Burn", allCategorizedItems, selectedBurnItems, 1)
+        triggerNotification("Refreshed Items List!", Color3.fromRGB(100, 255, 100))
+    end)
+    
+    AddToggle(autoBurnSection, "Enable Auto Burn", function(state)
+        autoBurnActive = state
+        if autoBurnActive then
+            task.spawn(function()
+                local rs = game:GetService("ReplicatedStorage")
+                while autoBurnActive do
+                    local mainFire = workspace:FindFirstChild("Map") and workspace.Map:FindFirstChild("Campground") and workspace.Map.Campground:FindFirstChild("MainFire")
+                    if mainFire then
+                        local itemsToBurn = {}
+                        local function scanFolder(folder)
+                            if folder then
+                                for _, obj in ipairs(folder:GetChildren()) do
+                                    if selectedBurnItems[obj.Name] and (obj:IsA("Model") or obj:IsA("BasePart")) then
+                                        table.insert(itemsToBurn, obj)
+                                    end
+                                end
+                            end
+                        end
+                        scanFolder(workspace)
+                        scanFolder(workspace:FindFirstChild("Items"))
+                        
+                        for _, targetItem in ipairs(itemsToBurn) do
+                            if not autoBurnActive then break end
+                            if targetItem and targetItem.Parent then
+                                pcall(function()
+                                    rs.RemoteEvents.RequestStartDraggingItem:FireServer(targetItem)
+                                    task.wait(0.05)
+                                    rs.RemoteEvents.StopDraggingItem:FireServer(targetItem)
+                                    task.wait(0.05)
+                                    rs.RemoteEvents.RequestStartDraggingItem:FireServer(targetItem)
+                                    task.wait(0.05)
+                                    local dropCFrame = CFrame.new(-1.2999496459960938, 1.9999427795410156 + 5, -1.5000114440917969)
+                                    if targetItem:IsA("Model") and targetItem.PrimaryPart then
+                                        targetItem:SetPrimaryPartCFrame(dropCFrame)
+                                    elseif targetItem:IsA("BasePart") then
+                                        targetItem.CFrame = dropCFrame
+                                    else
+                                        local part = targetItem:FindFirstChildWhichIsA("BasePart", true)
+                                        if part then part.CFrame = dropCFrame end
+                                    end
+                                    task.wait(0.05)
+                                    rs.RemoteEvents.StopDraggingItem:FireServer(targetItem)
+                                    task.wait(0.05)
+                                    rs.RemoteEvents.RequestStartDraggingItem:FireServer(targetItem)
+                                    task.wait(0.05)
+                                    rs.RemoteEvents.RequestBurnItem:FireServer(mainFire, targetItem)
+                                end)
+                                task.wait(0.2)
+                            end
+                        end
+                    end
+                    task.wait(1)
+                end
+            end)
+        end
+    end)
+
+    -- Teleport Page
+    local mapLocs = AddSection(teleportPage, "Map Locations")
+    AddButton(mapLocs, "Teleport to Camp", function()
+        teleportTo(CFrame.new(17.850570678710938, 4.000000953674316 + 5, 1.3775887489318848))
+    end)
+    AddButton(mapLocs, "Teleport to Stronghold", function()
+        pcall(function()
+            local targetPart = workspace.Map.Landmarks.Stronghold.Building.Exterior:GetChildren()[12].Model:GetChildren()[2]
+            local offset = CFrame.new(0, 5, 0)
+            if targetPart:IsA("Model") and targetPart.PrimaryPart then
+                teleportTo(targetPart.PrimaryPart.CFrame * offset)
+            elseif targetPart:IsA("BasePart") then
+                teleportTo(targetPart.CFrame * offset)
+            else
+                local part = targetPart:FindFirstChildWhichIsA("BasePart", true)
+                if part then
+                    teleportTo(part.CFrame * offset)
+                else
+                    teleportTo(CFrame.new(582.39990234375, 15.356568336486816 + 5, 255.3000030517578))
+                end
+            end
+        end)
+    end)
+    AddButton(mapLocs, "Teleport to Anvil", function()
+        teleportTo(CFrame.new(20, 4.102373123168945, 700))
+    end)
+    AddButton(mapLocs, "Teleport to Stronghold Chest", function()
+        pcall(function()
+            local chest = workspace:FindFirstChild("Items") and workspace.Items:FindFirstChild("Stronghold Diamond Chest")
+            if chest and chest:FindFirstChild("Model") and chest.Model:FindFirstChild("Meshes/diamondchest_Cube.004") then
+                local targetMesh = chest.Model["Meshes/diamondchest_Cube.004"]
+                teleportTo(targetMesh.CFrame * CFrame.new(0, 5, 0))
+            else
+                triggerNotification("Stronghold Chest not found!", Color3.fromRGB(255, 100, 100))
+            end
+        end)
+    end)
+    
+    local playerTeleport = AddSection(teleportPage, "Player Teleports")
+    local tpTargets = {}
+    local tpButtons = {}
+    local function refreshPlayerButtons()
+        local validPlayers = {}
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= LocalPlayer then table.insert(validPlayers, plr) end
+        end
+        for i = 1, 5 do
+            local targetPlr = validPlayers[i]
+            local btn = tpButtons[i]
+            if targetPlr then
+                tpTargets[i] = targetPlr
+                btn.Text = "TP to: " .. targetPlr.DisplayName
+                btn.Visible = true
+            else
+                tpTargets[i] = nil
+                btn.Text = "Empty"
+                btn.Visible = false
+            end
+        end
+    end
+    AddButton(playerTeleport, "Refresh Players", refreshPlayerButtons)
+    for i = 1, 5 do
+        local btn = AddButton(playerTeleport, "Empty", function()
+            local targetPlr = tpTargets[i]
+            if targetPlr and targetPlr.Character and targetPlr.Character:FindFirstChild("HumanoidRootPart") then
+                teleportTo(targetPlr.Character.HumanoidRootPart.CFrame)
+            end
+        end)
+        btn.Visible = false
+        table.insert(tpButtons, btn)
+    end
+    task.spawn(refreshPlayerButtons)
+
+    -- Resources Page
+    local resourcesSection = AddSection(resourcesPage, "Chest Actions")
+    local autoOpenChests = false
+    AddToggle(resourcesSection, "Auto Open Chests", function(state)
+        autoOpenChests = state
+        if autoOpenChests then
+            task.spawn(function()
+                local rs = game:GetService("ReplicatedStorage")
+                local requestOpen = rs:FindFirstChild("RemoteEvents") and rs.RemoteEvents:FindFirstChild("RequestOpenItemChest")
+                if not requestOpen then
+                    triggerNotification("Open Chest Event not found!", Color3.fromRGB(255, 100, 100))
+                    autoOpenChests = false
+                    return
+                end
+                while autoOpenChests do
+                    local chestsToOpen = {}
+                    local itemsFolder = workspace:FindFirstChild("Items")
+                    if itemsFolder then
+                        for _, item in ipairs(itemsFolder:GetChildren()) do
+                            if string.find(string.lower(item.Name), "chest") then
+                                table.insert(chestsToOpen, item)
+                            end
+                        end
+                    end
+                    pcall(function()
+                        local alienChest = LocalPlayer.PlayerScripts.Client.UpdateParty.AlienChestSpawnClient.Effects:FindFirstChild("AlienChest")
+                        if alienChest then table.insert(chestsToOpen, alienChest) end
+                    end)
+                    if #chestsToOpen == 0 then
+                        task.wait(1)
+                    else
+                        local count = 0
+                        for _, chest in ipairs(chestsToOpen) do
+                            if not autoOpenChests then break end
+                            if chest and chest.Parent then
+                                pcall(function() requestOpen:FireServer(chest) end)
+                                count = count + 1
+                                if count >= 10 then
+                                    count = 0
+                                    task.wait(1)
+                                end
+                            end
+                        end
+                        task.wait(1)
+                    end
+                end
+            end)
+        end
+    end)
+
+    local crockpotSection = AddSection(resourcesPage, "Auto Crockpot")
+    local autoCrockpotActive = false
+    AddToggle(crockpotSection, "Enable Auto Crockpot", function(state)
+        autoCrockpotActive = state
+        if autoCrockpotActive then
+            task.spawn(function()
+                local rs = game:GetService("ReplicatedStorage")
+                local crockPot = workspace:FindFirstChild("Structures") and workspace.Structures:FindFirstChild("Crock Pot")
+                if not crockPot then
+                    triggerNotification("Crock Pot not found!", Color3.fromRGB(255, 100, 100))
+                    autoCrockpotActive = false
+                    return
+                end
+                
+                -- FIXED: Determine actual position by locating BasePart instead of Erroring on Model
+                local targetPos = Vector3.zero
+                if crockPot:IsA("Model") and crockPot.PrimaryPart then
+                    targetPos = crockPot.PrimaryPart.Position + Vector3.new(0, 1, 0)
+                elseif crockPot:IsA("BasePart") then
+                    targetPos = crockPot.Position + Vector3.new(0, 1, 0)
+                else
+                    local part = crockPot:FindFirstChildWhichIsA("BasePart", true)
+                    if part then targetPos = part.Position + Vector3.new(0, 1, 0) end
+                end
+
+                local foodNames = {"Carrot", "Steak", "Berry", "#1", "Mushroom", "Fish", "Bread", "Potato", "Tomato", "Lemon"}
+                while autoCrockpotActive do
+                    local itemsToDrag = {}
+                    local function scanFolder(folder)
+                        if folder then
+                            for _, obj in ipairs(folder:GetChildren()) do
+                                if table.find(foodNames, obj.Name) and (obj:IsA("Model") or obj:IsA("BasePart")) then
+                                    table.insert(itemsToDrag, obj)
+                                end
+                            end
+                        end
+                    end
+                    scanFolder(workspace)
+                    scanFolder(workspace:FindFirstChild("Items"))
+                    
+                    for _, item in ipairs(itemsToDrag) do
+                        if not autoCrockpotActive then break end
+                        pcall(function()
+                            rs.RemoteEvents.RequestStartDraggingItem:FireServer(item)
+                            task.wait(0.05)
+                            rs.RemoteEvents.StopDraggingItem:FireServer(item)
+                            task.wait(0.05)
+                            rs.RemoteEvents.RequestStartDraggingItem:FireServer(item)
+                            task.wait(0.05)
+                            if item:IsA("Model") and item.PrimaryPart then
+                                item:SetPrimaryPartCFrame(CFrame.new(targetPos))
+                            elseif item:IsA("BasePart") then
+                                item.CFrame = CFrame.new(targetPos)
+                            else
+                                local part = item:FindFirstChildWhichIsA("BasePart", true)
+                                if part then part.CFrame = CFrame.new(targetPos) end
+                            end
+                            task.wait(0.05)
+                            rs.RemoteEvents.StopDraggingItem:FireServer(item)
+                        end)
+                        task.wait(0.3)
+                    end
+                    task.wait(3)
+                end
+            end)
+        end
+    end)
+
+    local itemTeleportSection = AddSection(resourcesPage, "Item Teleporter")
+    local selectedTeleportCategory = "All"
+    local teleportTargetPos = Vector3.new(-40, -14.061765670776367 + 5, -40)
+    AddDropdown(itemTeleportSection, "Category", {
+        {Name = "All Items", Object = "All"},
+        {Name = "Weapons", Object = "Weapons"},
+        {Name = "Consumables", Object = "Consumables"},
+        {Name = "Resources", Object = "Resources"}
+    }, function(category)
+        selectedTeleportCategory = category
+        triggerNotification("Selected: " .. category, Color3.fromRGB(100, 255, 100))
+    end)
+    AddButton(itemTeleportSection, "Teleport Items to Camp", function()
+        local categories = fetchCategorizedItems()
+        local namesToTeleport = {}
+        if selectedTeleportCategory == "All" then
+            for _, list in pairs(categories) do
+                for _, name in ipairs(list) do namesToTeleport[name] = true end
+            end
+        elseif selectedTeleportCategory == "Weapons" then
+            for _, name in ipairs(categories.Weapons) do namesToTeleport[name] = true end
+        elseif selectedTeleportCategory == "Consumables" then
+            for _, name in ipairs(categories.Consumables) do namesToTeleport[name] = true end
+        elseif selectedTeleportCategory == "Resources" then
+            for _, name in ipairs(categories.Resources) do namesToTeleport[name] = true end
+        end
+        local count = 0
+        local function scanFolder(folder)
+            if folder then
+                for _, obj in ipairs(folder:GetChildren()) do
+                    if namesToTeleport[obj.Name] and (obj:IsA("Model") or obj:IsA("BasePart")) then
+                        pcall(function()
+                            if obj:IsA("Model") and obj.PrimaryPart then
+                                obj:SetPrimaryPartCFrame(CFrame.new(teleportTargetPos))
+                                count = count + 1
+                            elseif obj:IsA("BasePart") then
+                                obj.CFrame = CFrame.new(teleportTargetPos)
+                                count = count + 1
+                            else
+                                local part = obj:FindFirstChildWhichIsA("BasePart", true)
+                                if part then
+                                    part.CFrame = CFrame.new(teleportTargetPos)
+                                    count = count + 1
+                                end
+                            end
+                        end)
+                    end
+                end
+            end
+        end
+        scanFolder(workspace)
+        scanFolder(workspace:FindFirstChild("Items"))
+        triggerNotification("Teleported " .. count .. " items to dump!", Color3.fromRGB(100, 255, 100))
+    end)
+
+    -- Combat Page (Revive fixed)
+    local combatSection = AddSection(combatPage, "Revive Players")
+    local Event = game:GetService("ReplicatedStorage"):FindFirstChild("RemoteEvents") and game:GetService("ReplicatedStorage").RemoteEvents:FindFirstChild("RequestRevivePlayer")
+
+    -- FIXED: Robustly checks workspace, Character, and GetNil. Falls back to Player object.
+    AddButton(combatSection, "Revive Self", function()
+        task.spawn(function()
+            if not Event then return end
+            local targetName = LocalPlayer.Name
+            local targetArg = workspace:FindFirstChild(targetName) or LocalPlayer.Character or GetNil(targetName) or LocalPlayer
+            
+            pcall(function() Event:FireServer(targetArg) end)
+            triggerNotification("Revive fired for self!", Color3.fromRGB(100,255,100))
+        end)
+    end)
+
+    local reviveTargets = {}
+    local reviveButtons = {}
+    local function refreshReviveButtons()
+        local validPlayers = {}
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= LocalPlayer then table.insert(validPlayers, plr) end
+        end
+        for i = 1, 5 do
+            local targetPlr = validPlayers[i]
+            local btn = reviveButtons[i]
+            if targetPlr then
+                reviveTargets[i] = targetPlr
+                btn.Text = "Revive: " .. targetPlr.DisplayName
+                btn.Visible = true
+            else
+                reviveTargets[i] = nil
+                btn.Text = "Empty"
+                btn.Visible = false
+            end
+        end
+    end
+    AddButton(combatSection, "Refresh Players", refreshReviveButtons)
+    for i = 1, 5 do
+        local btn = AddButton(combatSection, "Empty", function()
+            local targetPlr = reviveTargets[i]
+            if not targetPlr then return end
+            task.spawn(function()
+                if not Event then return end
+                -- FIXED: Robust check to find active bodies or use player token directly
+                local targetArg = workspace:FindFirstChild(targetPlr.Name) or targetPlr.Character or GetNil(targetPlr.Name) or targetPlr
+                
+                pcall(function() Event:FireServer(targetArg) end)
+                triggerNotification("Revived " .. targetPlr.DisplayName, Color3.fromRGB(100,255,100))
+            end)
+        end)
+        btn.Visible = false
+        table.insert(reviveButtons, btn)
+    end
+    task.spawn(refreshReviveButtons)
+
+    -- Craft Page
+    local craftSection = AddSection(craftPage, "Auto Scrapper")
+    local autoCraftActive = false
+    local selectedCraftItems = {}
+    local craftDropdowns = createCategorizedDropdowns(craftSection, "Scrap", allCategorizedItems, selectedCraftItems, 1)
+    AddButton(craftSection, "Refresh Item List", function()
+        allCategorizedItems = fetchCategorizedItems()
+        selectedCraftItems = {}
+        for _, dd in ipairs(craftDropdowns) do if dd then dd:Destroy() end end
+        craftDropdowns = createCategorizedDropdowns(craftSection, "Scrap", allCategorizedItems, selectedCraftItems, 1)
+        triggerNotification("Refreshed Items List!", Color3.fromRGB(100, 255, 100))
+    end)
+    AddToggle(craftSection, "Enable Auto Scrap", function(state)
+        autoCraftActive = state
+        if autoCraftActive then
+            task.spawn(function()
+                local rs = game:GetService("ReplicatedStorage")
+                while autoCraftActive do
+                    local scrapperPart = workspace:FindFirstChild("Map") 
+                        and workspace.Map:FindFirstChild("Campground") 
+                        and workspace.Map.Campground:FindFirstChild("Scrapper")
+                        and workspace.Map.Campground.Scrapper:FindFirstChild("Movers")
+                        and workspace.Map.Campground.Scrapper.Movers:FindFirstChild("Right")
+                        and workspace.Map.Campground.Scrapper.Movers.Right:FindFirstChild("GrindersRight")
+                    if scrapperPart then
+                        local itemsToScrap = {}
+                        local function scanFolder(folder)
+                            if folder then
+                                for _, obj in ipairs(folder:GetChildren()) do
+                                    if selectedCraftItems[obj.Name] and (obj:IsA("Model") or obj:IsA("BasePart")) then
+                                        table.insert(itemsToScrap, obj)
+                                    end
+                                end
+                            end
+                        end
+                        scanFolder(workspace)
+                        scanFolder(workspace:FindFirstChild("Items"))
+                        for _, targetItem in ipairs(itemsToScrap) do
+                            if not autoCraftActive then break end
+                            if targetItem and targetItem.Parent then
+                                pcall(function()
+                                    rs.RemoteEvents.RequestStartDraggingItem:FireServer(targetItem)
+                                    task.wait(0.05)
+                                    rs.RemoteEvents.StopDraggingItem:FireServer(targetItem)
+                                    task.wait(0.05)
+                                    rs.RemoteEvents.RequestStartDraggingItem:FireServer(targetItem)
+                                    task.wait(0.05)
+                                    local dropCFrame = scrapperPart.CFrame * CFrame.new(0, 5, 0)
+                                    if targetItem:IsA("Model") and targetItem.PrimaryPart then
+                                        targetItem:SetPrimaryPartCFrame(dropCFrame)
+                                    elseif targetItem:IsA("BasePart") then
+                                        targetItem.CFrame = dropCFrame
+                                    else
+                                        local part = targetItem:FindFirstChildWhichIsA("BasePart", true)
+                                        if part then part.CFrame = dropCFrame end
+                                    end
+                                    task.wait(0.05)
+                                    rs.RemoteEvents.StopDraggingItem:FireServer(targetItem)
+                                end)
+                                task.wait(0.2)
+                            end
+                        end
+                    end
+                    task.wait(1)
+                end
+            end)
+        end
+    end)
+
+    -- ===== TROLL PAGE =====
+    -- Section for item troll
+    local trollSection = AddSection(trollPage, "Item Troll")
+    local autoTrollActive = false
+    local selectedTrollItems = {}
+    local trollDropdowns = createCategorizedDropdowns(trollSection, "Troll", allCategorizedItems, selectedTrollItems, 1)
+    AddButton(trollSection, "Refresh Item List", function()
+        allCategorizedItems = fetchCategorizedItems()
+        selectedTrollItems = {}
+        for _, dd in ipairs(trollDropdowns) do if dd then dd:Destroy() end end
+        trollDropdowns = createCategorizedDropdowns(trollSection, "Troll", allCategorizedItems, selectedTrollItems, 1)
+        triggerNotification("Refreshed Items List!", Color3.fromRGB(100, 255, 100))
+    end)
+    AddToggle(trollSection, "Enable Auto Troll Items", function(state)
+        autoTrollActive = state
+        if autoTrollActive then
+            task.spawn(function()
+                local rs = game:GetService("ReplicatedStorage")
+                while autoTrollActive do
+                    local itemsToTroll = {}
+                    local function scanFolder(folder)
+                        if folder then
+                            for _, obj in ipairs(folder:GetChildren()) do
+                                if selectedTrollItems[obj.Name] and (obj:IsA("Model") or obj:IsA("BasePart")) then
+                                    table.insert(itemsToTroll, obj)
+                                end
+                            end
+                        end
+                    end
+                    scanFolder(workspace)
+                    scanFolder(workspace:FindFirstChild("Items"))
+                    
+                    -- FIXED: Dynamically fetch Fog location on every interval
+                    local dropCFrame = CFrame.new(0, -50000, 0) -- fallback
+                    pcall(function()
+                        local fog = workspace:FindFirstChild("Map") and workspace.Map:FindFirstChild("Boundaries") and workspace.Map.Boundaries:FindFirstChild("Fog")
+                        if fog then
+                            local fogParts = fog:GetChildren()
+                            if fogParts[5] then
+                                if fogParts[5]:IsA("BasePart") then
+                                    dropCFrame = fogParts[5].CFrame
+                                elseif fogParts[5]:IsA("Model") and fogParts[5].PrimaryPart then
+                                    dropCFrame = fogParts[5].PrimaryPart.CFrame
+                                end
+                            end
+                        end
+                    end)
+
+                    for _, targetItem in ipairs(itemsToTroll) do
+                        if not autoTrollActive then break end
+                        if targetItem and targetItem.Parent then
+                            pcall(function()
+                                rs.RemoteEvents.RequestStartDraggingItem:FireServer(targetItem)
+                                task.wait(0.05)
+                                rs.RemoteEvents.StopDraggingItem:FireServer(targetItem)
+                                task.wait(0.05)
+                                rs.RemoteEvents.RequestStartDraggingItem:FireServer(targetItem)
+                                task.wait(0.05)
+                                
+                                if targetItem:IsA("Model") and targetItem.PrimaryPart then
+                                    targetItem:SetPrimaryPartCFrame(dropCFrame)
+                                elseif targetItem:IsA("BasePart") then
+                                    targetItem.CFrame = dropCFrame
+                                else
+                                    local part = targetItem:FindFirstChildWhichIsA("BasePart", true)
+                                    if part then part.CFrame = dropCFrame end
+                                end
+                                task.wait(0.05)
+                                rs.RemoteEvents.StopDraggingItem:FireServer(targetItem)
+                            end)
+                            task.wait(0.2)
+                        end
+                    end
+                    task.wait(1)
+                end
+            end)
+        end
+    end)
+
+    -- Player Troll Features (No Clip, Infinite Jump, Fly, Fling Touch)
+    local playerTrollSection = AddSection(trollPage, "Player Troll")
+
+    -- No Clip
+    local noClipActive = false
+    AddToggle(playerTrollSection, "No Clip", function(state)
+        noClipActive = state
+        local char = LocalPlayer.Character
+        if not char then return end
+        if state then
+            for _, v in ipairs(char:GetDescendants()) do
+                if v:IsA("BasePart") then
+                    v.CanCollide = false
+                end
+            end
+        else
+            for _, v in ipairs(char:GetDescendants()) do
+                if v:IsA("BasePart") then
+                    v.CanCollide = true
+                end
+            end
+        end
+    end)
+    LocalPlayer.CharacterAdded:Connect(function(char)
+        if noClipActive then
+            task.wait(0.5)
+            for _, v in ipairs(char:GetDescendants()) do
+                if v:IsA("BasePart") then
+                    v.CanCollide = false
+                end
+            end
+        end
+    end)
+
+    -- Infinite Jump
+    local infJumpActive = false
+    AddToggle(playerTrollSection, "Infinite Jump", function(state)
+        infJumpActive = state
+        if state then
+            task.spawn(function()
+                while infJumpActive do
+                    local char = LocalPlayer.Character
+                    local hum = char and char:FindFirstChildOfClass("Humanoid")
+                    if hum and hum.Health > 0 then
+                        if hum:GetState() == Enum.HumanoidStateType.Landed or hum:GetState() == Enum.HumanoidStateType.Running then
+                            hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                        end
+                    end
+                    task.wait()
+                end
+            end)
+        end
+    end)
+
+    -- Fly
+    local flyActive = false
+    local flyBodyVelocity, flyBodyGyro, flyConnection
+    AddToggle(playerTrollSection, "Fly", function(state)
+        flyActive = state
+        local char = LocalPlayer.Character
+        if not char then return end
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if not hrp then return end
+
+        if state then
+            flyBodyVelocity = Instance.new("BodyVelocity")
+            flyBodyVelocity.MaxForce = Vector3.new(400000, 400000, 400000)
+            flyBodyVelocity.Velocity = Vector3.zero
+            flyBodyVelocity.Parent = hrp
+            
+            flyBodyGyro = Instance.new("BodyGyro")
+            flyBodyGyro.MaxTorque = Vector3.new(400000, 400000, 400000)
+            flyBodyGyro.CFrame = hrp.CFrame
+            flyBodyGyro.Parent = hrp
+            
+            flyConnection = RunService.RenderStepped:Connect(function()
+                if not flyActive then return end
+                local speed = 50
+                local moveVector = Vector3.zero
+                if UserInputService:IsKeyDown(Enum.KeyCode.W) then
+                    moveVector = moveVector + Camera.CFrame.LookVector
+                end
+                if UserInputService:IsKeyDown(Enum.KeyCode.S) then
+                    moveVector = moveVector - Camera.CFrame.LookVector
+                end
+                if UserInputService:IsKeyDown(Enum.KeyCode.A) then
+                    moveVector = moveVector - Camera.CFrame.RightVector
+                end
+                if UserInputService:IsKeyDown(Enum.KeyCode.D) then
+                    moveVector = moveVector + Camera.CFrame.RightVector
+                end
+                if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+                    moveVector = moveVector + Vector3.new(0, 1, 0)
+                end
+                if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then
+                    moveVector = moveVector - Vector3.new(0, 1, 0)
+                end
+                if moveVector.Magnitude > 0 then
+                    moveVector = moveVector.Unit * speed
+                    flyBodyVelocity.Velocity = moveVector
+                else
+                    flyBodyVelocity.Velocity = Vector3.zero
+                end
+                flyBodyGyro.CFrame = Camera.CFrame
+            end)
+        else
+            if flyBodyVelocity then flyBodyVelocity:Destroy() end
+            if flyBodyGyro then flyBodyGyro:Destroy() end
+            if flyConnection then flyConnection:Disconnect() end
+            flyBodyVelocity, flyBodyGyro, flyConnection = nil, nil, nil
+        end
+    end)
+
+    -- Fling Touch
+    local flingTasks = {}
+    local function flingPlayer(targetPlayer, condition)
+        local player = LocalPlayer
+        local char = player.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        if not hrp or not hum or hum.Health <= 0 then return end
+
+        local targetChar = targetPlayer.Character
+        local tHRP = targetChar and targetChar:FindFirstChild("HumanoidRootPart")
+        local tHum = targetChar and targetChar:FindFirstChildOfClass("Humanoid")
+        if not tHRP or not tHum or tHum.Health <= 0 then return end
+
+        local oldCFrame = hrp.CFrame
+        local oldFallen = workspace.FallenPartsDestroyHeight
+        workspace.FallenPartsDestroyHeight = -50000
+
+        hum:SetStateEnabled(Enum.HumanoidStateType.Seated, false)
+        hum:ChangeState(Enum.HumanoidStateType.Physics)
+
+        local oldTransparency = {}
+        for _, p in ipairs(char:GetDescendants()) do
+            if p:IsA("BasePart") then
+                oldTransparency[p] = p.Transparency
+                p.Transparency = 1
+                p.CanCollide = false
+            elseif p:IsA("Decal") then
+                oldTransparency[p] = p.Transparency
+                p.Transparency = 1
+            end
+        end
+
+        local ang = Instance.new("BodyAngularVelocity", hrp)
+        ang.Name = "FlingAngular"
+        ang.AngularVelocity = Vector3.new(0, 50000, 0)
+        ang.MaxTorque = Vector3.new(0, math.huge, 0)
+
+        local start = tick()
+        while condition() and tick() - start < 0.3 do
+            if tHRP and tHum and tHum.Health > 0 then
+                local targetPos = tHRP.Position + tHRP.Velocity * 0.1
+                hrp.CFrame = CFrame.new(targetPos)
+                hrp.Velocity = Vector3.zero
+            else
+                break
+            end
+            task.wait()
+        end
+
+        if ang then ang:Destroy() end
+        
+        for p, t in pairs(oldTransparency) do
+            if p:IsA("BasePart") then
+                p.Transparency = t
+                p.CanCollide = true
+            elseif p:IsA("Decal") then
+                p.Transparency = t
+            end
+        end
+
+        hum:SetStateEnabled(Enum.HumanoidStateType.Seated, true)
+        hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+        workspace.FallenPartsDestroyHeight = oldFallen
+        
+        hrp.Velocity = Vector3.zero
+        hrp.RotVelocity = Vector3.zero
+        hrp.CFrame = oldCFrame
+        
+        task.wait(0.2)
+    end
+
+    local function toggleFlingTouch(enabled)
+        flingTasks["FlingTouch"] = enabled
+        if enabled then
+            task.spawn(function()
+                local player = LocalPlayer
+                while flingTasks["FlingTouch"] do
+                    task.wait(0.1)
+                    local char = player.Character
+                    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                    local hum = char and char:FindFirstChildOfClass("Humanoid")
+                    
+                    if hrp and hum and hum.Health > 0 then
+                        for _, target in ipairs(Players:GetPlayers()) do
+                            if target ~= player and target.Character then
+                                local tHRP = target.Character:FindFirstChild("HumanoidRootPart")
+                                local tHum = target.Character:FindFirstChildOfClass("Humanoid")
+                                if tHRP and tHum and tHum.Health > 0 then
+                                    if (tHRP.Position - hrp.Position).Magnitude <= 5 then
+                                        flingPlayer(target, function()
+                                            return flingTasks["FlingTouch"]
+                                        end)
+                                        task.wait(0.2)
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end)
+        end
+    end
+
+    AddToggle(playerTrollSection, "Fling Touch", function(state)
+        toggleFlingTouch(state)
+    end)
+
+    -- Key bind toggle
+    local keyBindConnection = UserInputService.InputBegan:Connect(function(input)
+        if input.KeyCode == Config.MenuKey then
+            playClickSound()
+            MainFrame.Visible = not MainFrame.Visible
+        end
+    end)
+    table.insert(connections, keyBindConnection)
+    
+    triggerNotification("#99NIGHTS LOADED", Color3.fromRGB(255, 255, 255))
+    triggerNotification("VERSION 1.0", Color3.fromRGB(255, 255, 255))
+end
+
+-- Load the main hub immediately (key system removed)
+LoadMainHub()
 
