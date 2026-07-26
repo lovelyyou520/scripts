@@ -29,7 +29,7 @@ Library.ShowToggleFrameInKeybinds = true
 local Window = Library:CreateWindow({
 	Title = "Fishy x Abyss",
 	Footer = "Knife Duels",
-	Icon = 9465174708528dii,
+	Icon = 94651747085280,
 	NotifySide = "Right",
 	ShowCustomCursor = false
 })
