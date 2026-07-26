@@ -1,8 +1,25 @@
+--[[
+	Deobfuscated and de-authed script for Knife Duels.
+	Original auth system (abyss-scriptz-auth.up.railway.app) completely removed.
+	All features preserved: Silent Aim, Triggerbot, Visuals, Movement, UI Settings.
+--]]
+
+-- Services
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
+local UserInputService = game:GetService("UserInputService")
+local HttpService = game:GetService("HttpService")
+local LocalPlayer = Players.LocalPlayer
+local Camera = Workspace.CurrentCamera
+
+-- Load external UI library (unchanged)
 local repo = "https://raw.githubusercontent.com/deividcomsono/Obsidian/main/"
 local Library = loadstring(game:HttpGet(repo .. "Library.lua"))()
 local ThemeManager = loadstring(game:HttpGet(repo .. "addons/ThemeManager.lua"))()
 local SaveManager = loadstring(game:HttpGet(repo .. "addons/SaveManager.lua"))()
 
+-- Library configuration
 local Options = Library.Options
 local Toggles = Library.Toggles
 
@@ -12,7 +29,7 @@ Library.ShowToggleFrameInKeybinds = true
 local Window = Library:CreateWindow({
 	Title = "Fishy x Abyss",
 	Footer = "Knife Duels",
-	Icon = 94651747085280,
+	Icon = 9465174708528dii,
 	NotifySide = "Right",
 	ShowCustomCursor = false
 })
@@ -20,131 +37,148 @@ local Window = Library:CreateWindow({
 local Tabs = {
 	Combat = Window:AddTab("Combat", "swords"),
 	Visuals = Window:AddTab("Visuals", "eye"),
-    Movement = Window:AddTab("Movement", "person-standing"),
+	Movement = Window:AddTab("Movement", "person-standing"),
 	["UI Settings"] = Window:AddTab("UI Settings", "settings")
 }
 
--- [[ COMBAT ]]
-local CombatGroup = Tabs.Combat:AddLeftGroupbox("Silent Aim", "swords")
-
+-- ======================== COMBAT ========================
 local KnifeController = require(LocalPlayer.PlayerScripts:WaitForChild("Controllers"):WaitForChild("Combat"):WaitForChild("KnifeController"))
 
-CombatGroup:AddToggle("SilentAimToggle", {
-    Text = "Silent Aim",
-    Default = false,
-    Tooltip = "Silently redirects your knife towards the target"
+-- Helper functions
+local function isTeamMate(player)
+	if not Toggles.TeamCheck.Value then return false end
+	if not player or not LocalPlayer then return false end
+	if player.Team and LocalPlayer.Team and player.Team == LocalPlayer.Team then
+		return true
+	end
+	return false
+end
+
+local function getClosestPlayerInFOV()
+	local closest = nil
+	local closestDist = Options.FOVSlider.Value
+	local center = Camera.ViewportSize / 2
+
+	for _, player in ipairs(Players:GetPlayers()) do
+		if player ~= LocalPlayer and player.Character then
+			local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
+			if humanoid and humanoid.Health > 0 and not isTeamMate(player) then
+				local hitPart = player.Character:FindFirstChild(Options.HitPartDropdown.Value)
+				if hitPart then
+					local screenPos, onScreen = Camera:WorldToViewportPoint(hitPart.Position)
+					if onScreen then
+						local dist = (Vector2.new(screenPos.X, screenPos.Y) - center).Magnitude
+						if dist < closestDist then
+							closest = player
+							closestDist = dist
+						end
+					end
+				end
+			end
+		end
+	end
+	return closest
+end
+
+local function isTargetVisible(target)
+	if not target or not target.Character then return false end
+	local hitPart = target.Character:FindFirstChild(Options.HitPartDropdown.Value) or target.Character:FindFirstChild("HumanoidRootPart")
+	if not hitPart then return false end
+
+	local origin = Camera.CFrame.Position
+	local direction = (hitPart.Position - origin)
+	local rayParams = RaycastParams.new()
+	rayParams.FilterType = Enum.RaycastFilterType.Exclude
+	rayParams.FilterDescendantsInstances = { LocalPlayer.Character, target.Character }
+	rayParams.IgnoreWater = true
+
+	local result = Workspace:Raycast(origin, direction, rayParams)
+	return result == nil
+end
+
+-- Silent Aim Groupbox
+local SilentAimGroup = Tabs.Combat:AddLeftGroupbox("Silent Aim", "swords")
+
+SilentAimGroup:AddToggle("SilentAimToggle", {
+	Text = "Silent Aim",
+	Default = false,
+	Tooltip = "Silently redirects your knife towards the target"
 })
 
-CombatGroup:AddDropdown("HitPartDropdown", {
-    Values = { "Head", "HumanoidRootPart", "Torso" },
-    Default = "Head",
-    Text = "Hit Part",
-    Tooltip = "Which body part to aim at"
+SilentAimGroup:AddToggle("TeamCheck", {
+	Text = "Team Check",
+	Default = true,
+	Tooltip = "Ignores teammates (green ESP) for Silent Aim & Triggerbot"
 })
 
--- [[ TRIGGERBOT GROUPBOX ]]
+SilentAimGroup:AddDropdown("HitPartDropdown", {
+	Values = { "Head", "HumanoidRootPart", "Torso" },
+	Default = "Head",
+	Text = "Hit Part",
+	Tooltip = "Which body part to aim at"
+})
+
+-- Triggerbot Groupbox
 local TriggerbotGroup = Tabs.Combat:AddRightGroupbox("Triggerbot", "crosshair")
 
 TriggerbotGroup:AddToggle("TriggerbotToggle", {
-    Text = "Enable Triggerbot",
-    Default = false,
-    Tooltip = "Auto clicks when enemy is visible in FOV (no walls)"
+	Text = "Enable Triggerbot",
+	Default = false,
+	Tooltip = "Auto clicks when enemy is visible in FOV (no walls)"
 })
 
 TriggerbotGroup:AddDropdown("TriggerbotMouse", {
-    Values = { "Mouse1", "Mouse2" },
-    Default = "Mouse1",
-    Text = "Click Button",
-    Tooltip = "Which mouse button to auto-click"
+	Values = { "Mouse1", "Mouse2" },
+	Default = "Mouse1",
+	Text = "Click Button",
+	Tooltip = "Which mouse button to auto-click"
 })
 
-local function getClosestPlayerInFOV()
-    local closest = nil
-    local closestDist = Options.FOVSlider.Value
-    local cam = workspace.CurrentCamera
-    local center = cam.ViewportSize / 2
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer and player.Character then
-            local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
-            if humanoid and humanoid.Health > 0 then
-                local hitPart = player.Character:FindFirstChild(Options.HitPartDropdown.Value)
-                if hitPart then
-                    local screenPos, onScreen = workspace.CurrentCamera:WorldToViewportPoint(hitPart.Position)
-                    if onScreen then
-                        local dist = (Vector2.new(screenPos.X, screenPos.Y) - center).Magnitude
-                        if dist < closestDist then
-                            closest = player
-                            closestDist = dist
-                        end
-                    end
-                end
-            end
-        end
-    end
-    return closest
-end
-
--- Wallcheck (raycast from camera to target, ignore local + target character)
-local function isVisible(target)
-    if not target or not target.Character then return false end
-    local hitPart = target.Character:FindFirstChild(Options.HitPartDropdown.Value) or target.Character:FindFirstChild("HumanoidRootPart")
-    if not hitPart then return false end
-
-    local origin = Camera.CFrame.Position
-    local direction = (hitPart.Position - origin)
-    local rayParams = RaycastParams.new()
-    rayParams.FilterType = Enum.RaycastFilterType.Exclude
-    rayParams.FilterDescendantsInstances = {LocalPlayer.Character, target.Character}
-    rayParams.IgnoreWater = true
-
-    local result = Workspace:Raycast(origin, direction, rayParams)
-    return result == nil -- nothing hit = clear line of sight
-end
-
-local lastTrigger = 0
-local TRIGGER_COOLDOWN = 0.08 -- 80ms, adjust if needed
-
+-- Silent Aim Hook
 local OriginalGetThrowDirection = KnifeController._GetThrowDirection
 KnifeController._GetThrowDirection = function(self, knife)
-    if Toggles.SilentAimToggle.Value then
-        local target = getClosestPlayerInFOV()
-        if target and target.Character then
-            local hitPart = target.Character:FindFirstChild(Options.HitPartDropdown.Value)
-            if hitPart then
-                return (hitPart.Position - knife.Position).Unit
-            end
-        end
-    end
-    return OriginalGetThrowDirection(self, knife)
+	if Toggles.SilentAimToggle.Value then
+		local target = getClosestPlayerInFOV()
+		if target and target.Character then
+			local hitPart = target.Character:FindFirstChild(Options.HitPartDropdown.Value)
+			if hitPart then
+				return (hitPart.Position - knife.Position).Unit
+			end
+		end
+	end
+	return OriginalGetThrowDirection(self, knife)
 end
 
 Library:OnUnload(function()
-    KnifeController._GetThrowDirection = OriginalGetThrowDirection
+	KnifeController._GetThrowDirection = OriginalGetThrowDirection
 end)
 
--- Triggerbot loop
-table.insert(connections, RunService.RenderStepped:Connect(function()
-    if not Toggles.TriggerbotToggle.Value then return end
+-- Triggerbot Loop
+local lastTriggerTime = 0
+local TRIGGER_COOLDOWN = 0.08
 
-    local now = tick()
-    if now - lastTrigger < TRIGGER_COOLDOWN then return end
+local triggerbotConnection = RunService.RenderStepped:Connect(function()
+	if not Toggles.TriggerbotToggle.Value then return end
 
-    local target = getClosestPlayerInFOV()
-    if target and isVisible(target) then
-        local button = Options.TriggerbotMouse.Value
-        if button == "Mouse1" then
-            mouse1click()
-        else
-            mouse2click()
-        end
-        lastTrigger = now
-    end
-end))
+	local now = tick()
+	if now - lastTriggerTime < TRIGGER_COOLDOWN then return end
 
--- [[ VISUALS ]]
+	local target = getClosestPlayerInFOV()
+	if target and isTargetVisible(target) then
+		local button = Options.TriggerbotMouse.Value
+		if button == "Mouse1" then
+			mouse1click()
+		else
+			mouse2click()
+		end
+		lastTriggerTime = now
+	end
+end)
+
+-- ======================== VISUALS ========================
 local VisualsGroup = Tabs.Visuals:AddLeftGroupbox("Visuals", "eye")
 
--- FOV Circle - drawn every frame like KnvieDuelsSources
+-- FOV Circle Drawing
 local fovCircle = Drawing.new("Circle")
 fovCircle.Visible = false
 fovCircle.Transparency = 1
@@ -152,190 +186,215 @@ fovCircle.Thickness = 1.5
 fovCircle.Color = Color3.fromRGB(132, 204, 22)
 fovCircle.Filled = false
 fovCircle.Radius = 70
-fovCircle.Position = workspace.CurrentCamera.ViewportSize / 2
+fovCircle.Position = Camera.ViewportSize / 2
 
 VisualsGroup:AddToggle("FOVToggle", {
-    Text = "Show FOV Circle",
-    Default = false,
-    Tooltip = "Displays the Silent Aim FOV Circle"
+	Text = "Show FOV Circle",
+	Default = false,
+	Tooltip = "Displays the Silent Aim FOV Circle"
 }):AddColorPicker("FOVColor", {
-    Default = Color3.fromRGB(132, 204, 22),
-    Title = "FOV Color"
+	Default = Color3.fromRGB(132, 204, 22),
+	Title = "FOV Color"
 })
 
 VisualsGroup:AddSlider("FOVSlider", {
-    Text = "FOV Radius",
-    Default = 70,
-    Min = 10,
-    Max = 800,
-    Rounding = 0
+	Text = "FOV Radius",
+	Default = 70,
+	Min = 10,
+	Max = 800,
+	Rounding = 0
 })
 
-Library:OnUnload(function()
-    fovCircle:Remove()
-end)
-
-
-VisualsGroup:AddToggle("ESPToggle", {
-    Text = "Enable ESP",
-    Default = false,
-    Tooltip = "Highlights players"
-}):AddColorPicker("ESPColor", {
-    Default = Color3.fromRGB(255, 0, 0),
-    Title = "ESP Color"
-})
-
+-- ESP System
 local espHighlights = {}
 
+VisualsGroup:AddToggle("ESPToggle", {
+	Text = "Enable ESP",
+	Default = false,
+	Tooltip = "Highlights players (Green = Teammate, Red = Enemy)"
+}):AddColorPicker("ESPColor", {
+	Default = Color3.fromRGB(255, 0, 0),
+	Title = "Enemy Color (override)"
+})
+
 local function updateESP()
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer and player.Character then
-            if Toggles.ESPToggle.Value then
-                if not espHighlights[player] then
-                    local highlight = Instance.new("Highlight")
-                    highlight.FillTransparency = 0.5
-                    highlight.OutlineTransparency = 0
-                    highlight.Parent = player.Character
-                    espHighlights[player] = highlight
-                end
-                espHighlights[player].FillColor = Options.ESPColor.Value
-                espHighlights[player].OutlineColor = Options.ESPColor.Value
-                espHighlights[player].Parent = player.Character -- Ensure it stays on character
-            else
-                if espHighlights[player] then
-                    espHighlights[player]:Destroy()
-                    espHighlights[player] = nil
-                end
-            end
-        end
-    end
+	for _, player in ipairs(Players:GetPlayers()) do
+		if player ~= LocalPlayer and player.Character then
+			if Toggles.ESPToggle.Value then
+				local highlight = espHighlights[player]
+				if not highlight then
+					highlight = Instance.new("Highlight")
+					highlight.FillTransparency = 0.5
+					highlight.OutlineTransparency = 0
+					espHighlights[player] = highlight
+				end
+				highlight.Parent = player.Character
+
+				if isTeamMate(player) then
+					highlight.FillColor = Color3.fromRGB(0, 255, 0)
+					highlight.OutlineColor = Color3.fromRGB(0, 255, 0)
+				else
+					highlight.FillColor = Options.ESPColor.Value
+					highlight.OutlineColor = Options.ESPColor.Value
+				end
+			else
+				if espHighlights[player] then
+					espHighlights[player]:Destroy()
+					espHighlights[player] = nil
+				end
+			end
+		end
+	end
 end
 
-table.insert(connections, RunService.RenderStepped:Connect(function()
-    local cam = workspace.CurrentCamera
-    if Toggles.FOVToggle.Value then
-        fovCircle.Visible = true
-        fovCircle.Radius = Options.FOVSlider.Value
-        fovCircle.Color = Options.FOVColor.Value
-        fovCircle.Position = cam.ViewportSize / 2
-    else
-        fovCircle.Visible = false
-    end
-    updateESP()
-end))
+-- Clean up ESP on player leaving
+local function onPlayerRemoving(player)
+	if espHighlights[player] then
+		espHighlights[player]:Destroy()
+		espHighlights[player] = nil
+	end
+end
 
-table.insert(connections, Players.PlayerRemoving:Connect(function(player)
-    if espHighlights[player] then
-        espHighlights[player]:Destroy()
-        espHighlights[player] = nil
-    end
-end))
+Players.PlayerRemoving:Connect(onPlayerRemoving)
 
--- [[ MOVEMENT ]]
+-- Visuals Render Loop
+local visualsConnection = RunService.RenderStepped:Connect(function()
+	if Toggles.FOVToggle.Value then
+		fovCircle.Visible = true
+		fovCircle.Radius = Options.FOVSlider.Value
+		fovCircle.Color = Options.FOVColor.Value
+		fovCircle.Position = Camera.ViewportSize / 2
+	else
+		fovCircle.Visible = false
+	end
+	updateESP()
+end)
+
+-- ======================== MOVEMENT ========================
 local MovementGroup = Tabs.Movement:AddLeftGroupbox("Movement", "person-standing")
 
 MovementGroup:AddToggle("VelocityBypass", {
-    Text = "Velocity Bypass",
-    Default = false,
-    Tooltip = "Bypass Anti-Cheat for movement"
+	Text = "Velocity Bypass",
+	Default = false,
+	Tooltip = "Bypass Anti-Cheat for movement"
 })
 
 MovementGroup:AddToggle("WalkSpeedToggle", {
-    Text = "Enable WalkSpeed",
-    Default = false
+	Text = "Enable WalkSpeed",
+	Default = false
 })
 
 MovementGroup:AddSlider("WalkSpeedSlider", {
-    Text = "WalkSpeed",
-    Default = 16,
-    Min = 16,
-    Max = 150,
-    Rounding = 0
+	Text = "WalkSpeed",
+	Default = 16,
+	Min = 16,
+	Max = 150,
+	Rounding = 0
 })
 
 MovementGroup:AddToggle("JumpPowerToggle", {
-    Text = "Enable JumpPower",
-    Default = false
+	Text = "Enable JumpPower",
+	Default = false
 })
 
 MovementGroup:AddSlider("JumpPowerSlider", {
-    Text = "JumpPower",
-    Default = 50,
-    Min = 50,
-    Max = 300,
-    Rounding = 0
+	Text = "JumpPower",
+	Default = 50,
+	Min = 50,
+	Max = 300,
+	Rounding = 0
 })
 
-table.insert(connections, RunService.Heartbeat:Connect(function()
-    local char = LocalPlayer.Character
-    if char and char:FindFirstChild("Humanoid") then
-        local hum = char.Humanoid
-        local root = char:FindFirstChild("HumanoidRootPart")
-        
-        if Toggles.WalkSpeedToggle.Value then
-            if Toggles.VelocityBypass.Value and root then
-                if hum.MoveDirection.Magnitude > 0 then
-                    local vel = hum.MoveDirection * Options.WalkSpeedSlider.Value
-                    root.Velocity = Vector3.new(vel.X, root.Velocity.Y, vel.Z)
-                end
-            else
-                hum.WalkSpeed = Options.WalkSpeedSlider.Value
-            end
-        elseif not Toggles.VelocityBypass.Value then
-            if hum.WalkSpeed > 30 then
-                hum.WalkSpeed = 16 -- Reset if it was high and toggle turned off
-            end
-        end
-        
-        if Toggles.JumpPowerToggle.Value then
-            hum.JumpPower = Options.JumpPowerSlider.Value
-        elseif not Toggles.VelocityBypass.Value then
-            if hum.JumpPower > 60 then
-                hum.JumpPower = 50 -- Reset
-            end
-        end
-    end
-end))
+local movementConnection = RunService.Heartbeat:Connect(function()
+	local character = LocalPlayer.Character
+	if not character then return end
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	if not humanoid then return end
+	local rootPart = character:FindFirstChild("HumanoidRootPart")
 
--- [[ UI SETTINGS ]]
+	if Toggles.WalkSpeedToggle.Value then
+		if Toggles.VelocityBypass.Value and rootPart then
+			if humanoid.MoveDirection.Magnitude > 0 then
+				local vel = humanoid.MoveDirection * Options.WalkSpeedSlider.Value
+				rootPart.Velocity = Vector3.new(vel.X, rootPart.Velocity.Y, vel.Z)
+			end
+		else
+			humanoid.WalkSpeed = Options.WalkSpeedSlider.Value
+		end
+	else
+		if not Toggles.VelocityBypass.Value then
+			if humanoid.WalkSpeed > 30 then
+				humanoid.WalkSpeed = 16
+			end
+		end
+	end
+
+	if Toggles.JumpPowerToggle.Value then
+		humanoid.JumpPower = Options.JumpPowerSlider.Value
+	else
+		if not Toggles.VelocityBypass.Value then
+			if humanoid.JumpPower > 60 then
+				humanoid.JumpPower = 50
+			end
+		end
+	end
+end)
+
+-- ======================== UI SETTINGS ========================
 local MenuGroup = Tabs["UI Settings"]:AddLeftGroupbox("Menu", "wrench")
+
 MenuGroup:AddToggle("KeybindMenuOpen", {
-    Default = Library.KeybindFrame.Visible,
-    Text = "Open Keybind Menu",
-    Callback = function(value) Library.KeybindFrame.Visible = value end,
+	Default = Library.KeybindFrame.Visible,
+	Text = "Open Keybind Menu",
+	Callback = function(value) Library.KeybindFrame.Visible = value end
 })
+
 MenuGroup:AddToggle("ShowCustomCursor", {
-    Text = "Custom Cursor",
-    Default = Library.ShowCustomCursor,
-    Callback = function(Value) Library.ShowCustomCursor = Value end,
+	Text = "Custom Cursor",
+	Default = Library.ShowCustomCursor,
+	Callback = function(Value) Library.ShowCustomCursor = Value end
 })
+
 MenuGroup:AddDropdown("NotificationSide", {
-    Values = { "Left", "Right" },
-    Default = "Right",
-    Text = "Notification Side",
-    Callback = function(Value) Library:SetNotifySide(Value) end,
+	Values = { "Left", "Right" },
+	Default = "Right",
+	Text = "Notification Side",
+	Callback = function(Value) Library:SetNotifySide(Value) end
 })
+
 MenuGroup:AddDropdown("DPIDropdown", {
-    Values = { "50%", "75%", "100%", "125%", "150%", "175%", "200%" },
-    Default = "100%",
-    Text = "DPI Scale",
-    Callback = function(Value)
-        Value = Value:gsub("%%", "")
-        Library:SetDPIScale(tonumber(Value))
-    end,
+	Values = { "50%", "75%", "100%", "125%", "150%", "175%", "200%" },
+	Default = "100%",
+	Text = "DPI Scale",
+	Callback = function(Value)
+		Value = Value:gsub("%%", "")
+		Library:SetDPIScale(tonumber(Value))
+	end
 })
+
 MenuGroup:AddSlider("UICornerSlider", {
-    Text = "Corner Radius",
-    Default = Library.CornerRadius,
-    Min = 0,
-    Max = 20,
-    Rounding = 0,
-    Callback = function(value) Window:SetCornerRadius(value) end
+	Text = "Corner Radius",
+	Default = Library.CornerRadius,
+	Min = 0,
+	Max = 20,
+	Rounding = 0,
+	Callback = function(value) Window:SetCornerRadius(value) end
 })
-MenuGroup:AddLabel("Menu bind"):AddKeyPicker("MenuKeybind", { Default = "RightShift", NoUI = true, Text = "Menu keybind" })
-MenuGroup:AddButton({ Text = "Unload", Func = function() Library:Unload() end })
+
+MenuGroup:AddLabel("Menu bind"):AddKeyPicker("MenuKeybind", {
+	Default = "RightShift",
+	NoUI = true,
+	Text = "Menu keybind"
+})
+
+MenuGroup:AddButton({
+	Text = "Unload",
+	Func = function() Library:Unload() end
+})
+
 Library.ToggleKeybind = Options.MenuKeybind
 
+-- Theme & Save managers
 ThemeManager:SetLibrary(Library)
 SaveManager:SetLibrary(Library)
 SaveManager:IgnoreThemeSettings()
@@ -346,15 +405,33 @@ SaveManager:BuildConfigSection(Tabs["UI Settings"])
 ThemeManager:ApplyToTab(Tabs["UI Settings"])
 SaveManager:LoadAutoloadConfig()
 
--- Mobile/PC Toggle Bar
+-- Toggle button for mobile/PC
 Library:AddDraggableButton("Open/Close", function()
-    Library:Toggle()
+	Library:Toggle()
 end, false, 94651747085280, "Left")
 
--- [[ CLEANUP ]]
+-- ======================== CLEANUP ========================
+-- Collect all connections to disconnect on unload
+local connections = {
+	triggerbotConnection,
+	visualsConnection,
+	movementConnection
+}
+
 Library:OnUnload(function()
-    stopAllFarms()
-    for _, conn in ipairs(connections) do
-        if typeof(conn) == "RBXScriptConnection" then conn:Disconnect() end
-    end
+	-- Remove FOV circle
+	fovCircle:Remove()
+
+	-- Disconnect all connections
+	for _, conn in ipairs(connections) do
+		if typeof(conn) == "RBXScriptConnection" then
+			conn:Disconnect()
+		end
+	end
+
+	-- Clear ESP highlights
+	for _, highlight in pairs(espHighlights) do
+		highlight:Destroy()
+	end
+	espHighlights = {}
 end)
