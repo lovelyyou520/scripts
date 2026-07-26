@@ -1043,15 +1043,15 @@ local function LoadMainHub()
                     return
                 end
                 
-                -- FIXED: Added 2.5 Y offset for better drop tracking
+                -- FIXED: Added Y offset for better drop tracking
                 local targetPos = Vector3.zero
                 if crockPot:IsA("Model") and crockPot.PrimaryPart then
-                    targetPos = crockPot.PrimaryPart.Position + Vector3.new(0, 2.5, 0)
+                    targetPos = crockPot.PrimaryPart.Position + Vector3.new(0, 1, 0)
                 elseif crockPot:IsA("BasePart") then
-                    targetPos = crockPot.Position + Vector3.new(0, 2.5, 0)
+                    targetPos = crockPot.Position + Vector3.new(0, 1, 0)
                 else
                     local part = crockPot:FindFirstChildWhichIsA("BasePart", true)
-                    if part then targetPos = part.Position + Vector3.new(0, 2.5, 0) end
+                    if part then targetPos = part.Position + Vector3.new(0, 1, 0) end
                 end
 
                 local foodNames = {"Carrot", "Steak", "Berry", "#1", "Mushroom", "Fish", "Bread", "Potato", "Tomato", "Lemon"}
@@ -1162,11 +1162,9 @@ local function LoadMainHub()
             if not Event then return end
             local char = LocalPlayer.Character
             local hum = char and char:FindFirstChildOfClass("Humanoid")
-            if hum and hum.Health <= 0 then
-                local targetArg = workspace:FindFirstChild(LocalPlayer.Name) or char or GetNil(LocalPlayer.Name) or LocalPlayer
-                pcall(function() Event:FireServer(targetArg) end)
-                triggerNotification("Revive fired for self!", Color3.fromRGB(100,255,100))
-            end
+            local targetArg = workspace:FindFirstChild(LocalPlayer.Name) or char or GetNil(LocalPlayer.Name) or LocalPlayer
+            pcall(function() Event:FireServer(targetArg) end)
+            triggerNotification("Revive fired for self!", Color3.fromRGB(100,255,100))
         end)
     end)
 
@@ -1202,12 +1200,9 @@ local function LoadMainHub()
                 local targetChar = workspace:FindFirstChild(targetPlr.Name) or targetPlr.Character
                 local hum = targetChar and targetChar:FindFirstChildOfClass("Humanoid")
                 
-                -- FIXED: Only run and notify if the target player is dead
-                if hum and hum.Health <= 0 then
-                    local targetArg = targetChar or GetNil(targetPlr.Name) or targetPlr
-                    pcall(function() Event:FireServer(targetArg) end)
-                    triggerNotification("Revived " .. targetPlr.DisplayName, Color3.fromRGB(100,255,100))
-                end
+                local targetArg = targetChar or GetNil(targetPlr.Name) or targetPlr
+                pcall(function() Event:FireServer(targetArg) end)
+                triggerNotification("Revived " .. targetPlr.DisplayName, Color3.fromRGB(100,255,100))
             end)
         end)
         btn.Visible = false
@@ -1407,6 +1402,8 @@ local function LoadMainHub()
                 local hum = char and char:FindFirstChildOfClass("Humanoid")
                 if hum and hum.Health > 0 then
                     hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                    local hrp = char:FindFirstChild("HumanoidRootPart")
+                    if hrp then hrp.Velocity = Vector3.new(hrp.Velocity.X, hum.JumpPower or 50, hrp.Velocity.Z) end
                 end
             end)
         else
@@ -1430,14 +1427,15 @@ local function LoadMainHub()
 
         if state then
             hum.PlatformStand = true 
+            hrp.CFrame = hrp.CFrame + Vector3.new(0, 3, 0)
             
             flyBodyVelocity = Instance.new("BodyVelocity")
-            flyBodyVelocity.MaxForce = Vector3.new(400000, 400000, 400000)
+            flyBodyVelocity.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
             flyBodyVelocity.Velocity = Vector3.zero
             flyBodyVelocity.Parent = hrp
             
             flyBodyGyro = Instance.new("BodyGyro")
-            flyBodyGyro.MaxTorque = Vector3.new(400000, 400000, 400000)
+            flyBodyGyro.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
             flyBodyGyro.CFrame = hrp.CFrame
             flyBodyGyro.Parent = hrp
             
