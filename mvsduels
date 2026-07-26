@@ -1,1 +1,615 @@
+local repo = "https://raw.githubusercontent.com/deividcomsono/Obsidian/main/"
+local Library = loadstring(game:HttpGet(repo .. "Library.lua"))()
+local ThemeManager = loadstring(game:HttpGet(repo .. "addons/ThemeManager.lua"))()
+local SaveManager = loadstring(game:HttpGet(repo .. "addons/SaveManager.lua"))()
 
+local Options = Library.Options
+local Toggles = Library.Toggles
+
+Library.ForceCheckbox = false
+Library.ShowToggleFrameInKeybinds = true
+
+local Window = Library:CreateWindow({
+	Title = "Fishy x Abyss",
+	Footer = "Murderers VS Sheriffs DUELS",
+	Icon = 94651747085280,
+	NotifySide = "Right",
+	ShowCustomCursor = false
+})
+
+local Tabs = {
+	Combat = Window:AddTab("Combat", "swords"),
+	Visuals = Window:AddTab("Visuals", "eye"),
+    Teleport = Window:AddTab("Teleport", "map"),
+    Movement = Window:AddTab("Movement", "person-standing"),
+    Troll = Window:AddTab("Troll & OP", "ghost"),
+	["UI Settings"] = Window:AddTab("UI Settings", "settings")
+}
+
+-- [[ SERVICES & CONFIG ]]
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Workspace = game:GetService("Workspace")
+local CoreGui = game:GetService("CoreGui")
+local VirtualInputManager = nil
+pcall(function() VirtualInputManager = game:GetService("VirtualInputManager") end)
+local LocalPlayer = Players.LocalPlayer
+local Camera = Workspace.CurrentCamera
+local Mouse = LocalPlayer:GetMouse()
+
+local connections = {}
+local espObjects = {}
+local originalWalkspeed = 16
+local originalJumpPower = 50
+local hitboxesRestored = true
+local isSpectating = false
+local TracerScreenGui = Instance.new("ScreenGui")
+TracerScreenGui.Name = "FishyTracers_Screen"
+pcall(function() TracerScreenGui.Parent = game:GetService("CoreGui") end)
+if not TracerScreenGui.Parent then TracerScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui") end
+
+local Config = {
+    Aimbot = false, TargetEveryone = false, TriggerBot = false,
+    AimPart = "Head", AimSmoothness = 0.15, AimbotFOV = 120, ShowFOV = true,
+    TriggerDelay = 0.02,
+    ESPEnabled = false, ESPShowNames = true, ESPShowDist = true, ESPTracers = false, ESPDroppedGun = true,
+    WalkSpeedEnabled = false, WalkSpeed = 45, JumpPowerEnabled = false, JumpPower = 100, InfJumpEnabled = false,
+    FlyEnabled = false, FlySpeed = 50, NoclipEnabled = false,
+    HitboxChanger = false, HitboxSize = 12, HitboxTrans = 0.65,
+    SpinBot = false, SpinSpeed = 25, AutoEscape = false, AutoEscapeDist = 18,
+    SelectedTeleportPlayer = "", SelectedSpectatePlayer = ""
+}
+
+-- [[ UTILS ]]
+
+
+local function getClosestPlayer()
+    local target = nil
+    local minDistance = math.huge
+    
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") and plr.Character:FindFirstChild("Humanoid") then
+            local humanoid = plr.Character.Humanoid
+            if humanoid.Health > 0 then
+                if true then
+                    local targetPartName = Config.AimPart
+                    if targetPartName == "HumanoidRootPart" then
+                        targetPartName = "HumanoidRootPart"
+                    elseif targetPartName == "Head" then
+                        targetPartName = "Head"
+                    end
+                    local aimPart = plr.Character:FindFirstChild(targetPartName) or plr.Character:FindFirstChild("Head") or plr.Character:FindFirstChild("HumanoidRootPart")
+                    if aimPart then
+                        local screenPoint, onScreen = Camera:WorldToViewportPoint(aimPart.Position)
+                        if onScreen then
+                            local mousePos = UserInputService:GetMouseLocation()
+                            local adjustedMousePos = Vector2.new(mousePos.X, mousePos.Y - 36)
+                            local dist = (Vector2.new(screenPoint.X, screenPoint.Y) - adjustedMousePos).Magnitude
+                            if dist < Config.AimbotFOV and dist < minDistance then
+                                target = plr
+                                minDistance = dist
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return target
+end
+
+local function teleportTo(cframe)
+    local char = LocalPlayer.Character
+    if char and char:FindFirstChild("HumanoidRootPart") then
+        char.HumanoidRootPart.CFrame = cframe
+    end
+end
+
+-- [[ UI POPULATION ]]
+-- Combat
+local AimLockGroup = Tabs.Combat:AddLeftGroupbox("Aim Lock")
+AimLockGroup:AddToggle("Aimbot", {Text = "Aimbot", Default = false, Callback = function(v) Config.Aimbot = v end})
+AimLockGroup:AddToggle("TargetEveryone", {Text = "Target Everyone", Default = false, Callback = function(v) Config.TargetEveryone = v end})
+
+local AimCustomGroup = Tabs.Combat:AddRightGroupbox("Aim Customization")
+AimCustomGroup:AddDropdown("AimPart", {Values = {"Head", "HumanoidRootPart"}, Default = 1, Multi = false, Text = "Aim Target Part", Callback = function(v) Config.AimPart = v end})
+AimCustomGroup:AddSlider("AimSmoothness", {Text = "Aim Smoothness", Default = 0.5, Min = 0.05, Max = 1.0, Rounding = 2, Callback = function(v) Config.AimSmoothness = v end})
+AimCustomGroup:AddSlider("AimbotFOV", {Text = "Aimbot FOV Radius", Default = 120, Min = 30, Max = 800, Rounding = 0, Callback = function(v) Config.AimbotFOV = v end})
+AimCustomGroup:AddToggle("ShowFOV", {Text = "Show FOV Circle", Default = true, Callback = function(v) Config.ShowFOV = v end})
+
+local WeaponModGroup = Tabs.Combat:AddLeftGroupbox("Weapon Modifiers")
+WeaponModGroup:AddToggle("TriggerBot", {Text = "Trigger Bot", Default = false, Callback = function(v) Config.TriggerBot = v end})
+WeaponModGroup:AddSlider("TriggerDelay", {Text = "Triggerbot Delay", Default = 0.02, Min = 0.0, Max = 1.0, Rounding = 2, Callback = function(v) Config.TriggerDelay = v end})
+
+-- Visuals
+local ESPGroup = Tabs.Visuals:AddLeftGroupbox("ESP Configuration")
+ESPGroup:AddToggle("ESPEnabled", {Text = "ESP Enabled", Default = false, Callback = function(v) Config.ESPEnabled = v end})
+ESPGroup:AddToggle("ESPShowNames", {Text = "Show Names", Default = true, Callback = function(v) Config.ESPShowNames = v end})
+ESPGroup:AddToggle("ESPShowDist", {Text = "Show Distance", Default = true, Callback = function(v) Config.ESPShowDist = v end})
+ESPGroup:AddToggle("ESPTracers", {Text = "Tracers", Default = false, Callback = function(v) Config.ESPTracers = v end})
+ESPGroup:AddToggle("ESPDroppedGun", {Text = "Dropped Gun ESP", Default = true, Callback = function(v) Config.ESPDroppedGun = v end})
+
+-- Teleport
+local TeleportGroup = Tabs.Teleport:AddLeftGroupbox("Map Locations")
+TeleportGroup:AddButton({Text = "Teleport to Lobby / Safe Zone", Func = function()
+    teleportTo(CFrame.new(42.2319, -86.2365, -273.6537))
+end})
+
+local PlayerTPGroup = Tabs.Teleport:AddRightGroupbox("Player Teleports")
+local PlayerTPDropdown = PlayerTPGroup:AddDropdown("PlayerTPList", {Values = {}, Default = 1, Multi = false, Text = "Select Player", Callback = function(v) Config.SelectedTeleportPlayer = v end})
+PlayerTPGroup:AddButton({Text = "Refresh List", Func = function()
+    local list = {}
+    for _, plr in ipairs(Players:GetPlayers()) do if plr ~= LocalPlayer then table.insert(list, plr.Name) end end
+    PlayerTPDropdown:SetValues(list)
+end})
+PlayerTPGroup:AddButton({Text = "Teleport", Func = function()
+    local pName = Config.SelectedTeleportPlayer
+    if pName and pName ~= "" then
+        local p = Players:FindFirstChild(pName)
+        if p and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then teleportTo(p.Character.HumanoidRootPart.CFrame) end
+    end
+end})
+
+-- Movement
+local MoveGroup = Tabs.Movement:AddLeftGroupbox("Basic Movement")
+MoveGroup:AddToggle("WalkSpeedEnabled", {Text = "Speed Hack", Default = false, Callback = function(v) Config.WalkSpeedEnabled = v end})
+MoveGroup:AddSlider("WalkSpeed", {Text = "Speed Value", Default = 45, Min = 16, Max = 250, Rounding = 0, Callback = function(v) Config.WalkSpeed = v end})
+MoveGroup:AddToggle("JumpPowerEnabled", {Text = "Jump Hack", Default = false, Callback = function(v) Config.JumpPowerEnabled = v end})
+MoveGroup:AddSlider("JumpPower", {Text = "Jump Value", Default = 100, Min = 50, Max = 350, Rounding = 0, Callback = function(v) Config.JumpPower = v end})
+MoveGroup:AddToggle("InfJumpEnabled", {Text = "Infinite Jump", Default = false, Callback = function(v) Config.InfJumpEnabled = v end})
+
+local AdvMoveGroup = Tabs.Movement:AddRightGroupbox("Advanced Movement")
+AdvMoveGroup:AddToggle("FlyEnabled", {Text = "Fly Mode (W/A/S/D)", Default = false, Callback = function(v) Config.FlyEnabled = v end})
+AdvMoveGroup:AddSlider("FlySpeed", {Text = "Fly Speed", Default = 50, Min = 10, Max = 300, Rounding = 0, Callback = function(v) Config.FlySpeed = v end})
+AdvMoveGroup:AddToggle("NoclipEnabled", {Text = "Noclip", Default = false, Callback = function(v) Config.NoclipEnabled = v end})
+
+-- Troll
+local TrollCombatGroup = Tabs.Troll:AddLeftGroupbox("Troll")
+TrollCombatGroup:AddToggle("SpinBot", {Text = "SpinBot", Default = false, Callback = function(v) Config.SpinBot = v end})
+TrollCombatGroup:AddSlider("SpinSpeed", {Text = "Spin Speed", Default = 25, Min = 5, Max = 100, Rounding = 0, Callback = function(v) Config.SpinSpeed = v end})
+
+local TrollLobbyGroup = Tabs.Troll:AddRightGroupbox("Lobby Manipulation")
+TrollLobbyGroup:AddToggle("HitboxChanger", {Text = "Hitbox Extender", Default = false, Callback = function(v) Config.HitboxChanger = v end})
+TrollLobbyGroup:AddSlider("HitboxSize", {Text = "Hitbox Size", Default = 12, Min = 2, Max = 35, Rounding = 0, Callback = function(v) Config.HitboxSize = v end})
+TrollLobbyGroup:AddSlider("HitboxTrans", {Text = "Hitbox Transparency", Default = 0.65, Min = 0.0, Max = 1.0, Rounding = 2, Callback = function(v) Config.HitboxTrans = v end})
+TrollLobbyGroup:AddToggle("AutoEscape", {Text = "Auto Escape (Run)", Default = false, Callback = function(v) Config.AutoEscape = v end})
+TrollLobbyGroup:AddSlider("AutoEscapeDist", {Text = "Escape Distance", Default = 18, Min = 5, Max = 40, Rounding = 0, Callback = function(v) Config.AutoEscapeDist = v end})
+
+
+-- [[ BACKEND LOOPS & LOGIC ]]
+local FOVCircle = nil
+if Drawing and Drawing.new then
+    pcall(function()
+        FOVCircle = Drawing.new("Circle")
+        FOVCircle.Thickness = 1.5
+        FOVCircle.NumSides = 64
+        FOVCircle.Filled = false
+        FOVCircle.Color = Color3.fromRGB(255, 255, 255)
+        FOVCircle.Visible = false
+    end)
+end
+
+local currentAimbotTarget = nil
+local lastTriggerTime = 0
+
+-- RenderStepped
+local mainConn = RunService.RenderStepped:Connect(function()
+    -- FOV Circle
+    if FOVCircle then
+        FOVCircle.Visible = Config.ShowFOV
+        if FOVCircle.Visible then
+            FOVCircle.Radius = Config.AimbotFOV
+            FOVCircle.Position = UserInputService:GetMouseLocation()
+        end
+    end
+    
+    -- Aimbot (mousemoverel fix)
+    if Config.Aimbot and UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2) then
+        local target = getClosestPlayer()
+        if target and target.Character then
+            local targetPartName = Config.AimPart
+            local aimPart = target.Character:FindFirstChild(targetPartName) or target.Character:FindFirstChild("Head") or target.Character:FindFirstChild("HumanoidRootPart")
+            if aimPart then
+                local partPos = aimPart.Position
+                local screenPos, onScreen = Camera:WorldToViewportPoint(partPos)
+                if onScreen then
+                    local mouseLoc = UserInputService:GetMouseLocation()
+                    local targetMouse = Vector2.new(screenPos.X, screenPos.Y + 36)
+                    local delta = targetMouse - mouseLoc
+                    if mousemoverel then
+                        mousemoverel(delta.X * Config.AimSmoothness * 0.5, delta.Y * Config.AimSmoothness * 0.5)
+                    end
+                end
+            end
+        end
+    end
+    
+    -- Triggerbot
+    if Config.TriggerBot then
+        local now = tick()
+        if now - lastTriggerTime >= Config.TriggerDelay then
+            local targetObj = Mouse.Target
+            if targetObj and targetObj.Parent then
+                local char = targetObj.Parent
+                -- walk up one level if we hit an accessory/part inside the character
+                if not char:FindFirstChildOfClass("Humanoid") and char.Parent and char.Parent:FindFirstChildOfClass("Humanoid") then
+                    char = char.Parent
+                end
+                local humanoid = char:FindFirstChildOfClass("Humanoid")
+                local targetPlr = Players:GetPlayerFromCharacter(char)
+                if targetPlr and targetPlr ~= LocalPlayer and humanoid and humanoid.Health > 0 then
+                    lastTriggerTime = now
+                    if mouse1click then
+                        mouse1click()
+                    elseif VirtualInputManager then
+                        VirtualInputManager:SendMouseButtonEvent(Mouse.X, Mouse.Y, 0, true, game, 1)
+                        task.wait()
+                        VirtualInputManager:SendMouseButtonEvent(Mouse.X, Mouse.Y, 0, false, game, 1)
+                    end
+                end
+            end
+        end
+    end
+end)
+table.insert(connections, mainConn)
+
+-- Heartbeat
+local flyVelocity, flyGyro = nil, nil
+local hbConn = RunService.Heartbeat:Connect(function()
+    local char = LocalPlayer.Character
+    if not char then return end
+    local humanoid = char:FindFirstChild("Humanoid")
+    local root = char:FindFirstChild("HumanoidRootPart")
+    if not humanoid or not root then return end
+    
+    humanoid.WalkSpeed = Config.WalkSpeedEnabled and Config.WalkSpeed or originalWalkspeed
+    if Config.JumpPowerEnabled then humanoid.JumpPower, humanoid.UseJumpPower = Config.JumpPower, true else humanoid.JumpPower = originalJumpPower end
+    
+    if Config.NoclipEnabled then
+        for _, part in ipairs(char:GetDescendants()) do if part:IsA("BasePart") then part.CanCollide = false end end
+    end
+    
+    if Config.FlyEnabled then
+        if not flyVelocity or flyVelocity.Parent ~= root then
+            flyVelocity = Instance.new("BodyVelocity")
+            flyVelocity.MaxForce = Vector3.new(1, 1, 1) * 9e9
+            flyVelocity.Velocity = Vector3.new(0, 0, 0)
+            flyVelocity.Parent = root
+            
+            flyGyro = Instance.new("BodyGyro")
+            flyGyro.MaxTorque = Vector3.new(1, 1, 1) * 9e9
+            flyGyro.CFrame = root.CFrame
+            flyGyro.Parent = root
+        end
+        local camCF, dir = Camera.CFrame, Vector3.new(0, 0, 0)
+        if UserInputService:IsKeyDown(Enum.KeyCode.W) then dir = dir + camCF.LookVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.S) then dir = dir - camCF.LookVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.D) then dir = dir + camCF.RightVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.A) then dir = dir - camCF.RightVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then dir = dir + Vector3.new(0, 1, 0) end
+        if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then dir = dir - Vector3.new(0, 1, 0) end
+        flyVelocity.Velocity = dir.Magnitude > 0 and dir.Unit * Config.FlySpeed or Vector3.new(0, 0, 0)
+        flyGyro.CFrame = camCF
+        humanoid.PlatformStand = true
+    else
+        if flyVelocity then flyVelocity:Destroy() flyVelocity = nil end
+        if flyGyro then flyGyro:Destroy() flyGyro = nil end
+        if humanoid.PlatformStand then humanoid.PlatformStand = false end
+    end
+end)
+table.insert(connections, hbConn)
+
+local function update2DTracerFrame(frame, from, to, color)
+    local dist = (to - from).Magnitude
+    frame.Size = UDim2.new(0, dist, 0, 1.2)
+    frame.Position = UDim2.new(0, (from.X + to.X)/2 - dist/2, 0, (from.Y + to.Y)/2)
+    frame.Rotation = math.deg(math.atan2(to.Y - from.Y, to.X - from.X))
+    frame.BackgroundColor3 = color
+    frame.Visible = true
+end
+
+-- ESP Loop
+local function cleanESPForPlayer(plrName)
+    local objs = espObjects[plrName]
+    if objs then
+        if objs.Highlight then objs.Highlight:Destroy() end
+        if objs.Billboard then objs.Billboard:Destroy() end
+        if objs.Tracer then pcall(function() objs.Tracer:Remove() end) end
+        if objs.FrameTracer then objs.FrameTracer:Destroy() end
+        espObjects[plrName] = nil
+    end
+end
+local espConn = RunService.RenderStepped:Connect(function()
+    if not Config.ESPEnabled then
+        for plrName, _ in pairs(espObjects) do cleanESPForPlayer(plrName) end
+        return
+    end
+        
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= LocalPlayer and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
+                local char = plr.Character
+                local root = char.HumanoidRootPart
+                if char.Humanoid.Health > 0 then
+                    local color = Color3.fromRGB(255, 255, 255)
+                    local visual = espObjects[plr.Name] or {}
+                    
+                    if not visual.Highlight or visual.Highlight.Parent ~= char then
+                        if visual.Highlight then visual.Highlight:Destroy() end
+                        visual.Highlight = Instance.new("Highlight")
+                        visual.Highlight.Name = "FishyESP_Outline"
+                        visual.Highlight.FillTransparency = 0.75
+                        visual.Highlight.OutlineTransparency = 0.1
+                        visual.Highlight.Parent = char
+                    end
+                    visual.Highlight.FillColor = color
+                    visual.Highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+                    
+                    if not visual.Billboard or visual.Billboard.Parent ~= root then
+                        if visual.Billboard then visual.Billboard:Destroy() end
+                        visual.Billboard = Instance.new("BillboardGui")
+                        visual.Billboard.Name = "FishyESP_Board"
+                        visual.Billboard.AlwaysOnTop = true
+                        visual.Billboard.Size = UDim2.new(0, 150, 0, 45)
+                        visual.Billboard.StudsOffset = Vector3.new(0, 3, 0)
+                        visual.Billboard.Parent = root
+                        
+                        visual.Label = Instance.new("TextLabel")
+                        visual.Label.Size = UDim2.new(1, 0, 1, 0)
+                        visual.Label.BackgroundTransparency = 1
+                        visual.Label.Font = Enum.Font.GothamBold
+                        visual.Label.TextSize = 10
+                        visual.Label.Parent = visual.Billboard
+                    end
+                    local dist = math.floor((LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") and (LocalPlayer.Character.HumanoidRootPart.Position - root.Position).Magnitude) or 0)
+                    local textArr = {}
+                    if Config.ESPShowNames then table.insert(textArr, plr.DisplayName or plr.Name) end
+                    if Config.ESPShowDist then table.insert(textArr, tostring(dist) .. " studs") end
+                    visual.Label.Text = table.concat(textArr, "\n")
+                    visual.Label.TextColor3 = color
+                    
+                    if Config.ESPTracers then
+                        local screenPoint, onScreen = Camera:WorldToScreenPoint(root.Position)
+                        if onScreen then
+                            local screenStart = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y - 50)
+                            local screenEnd = Vector2.new(screenPoint.X, screenPoint.Y)
+                            if Drawing and Drawing.new then
+                                if not visual.Tracer then visual.Tracer = Drawing.new("Line") visual.Tracer.Thickness, visual.Tracer.Transparency = 1.2, 0.65 end
+                                visual.Tracer.From, visual.Tracer.To, visual.Tracer.Color, visual.Tracer.Visible = screenStart, screenEnd, color, true
+                            else
+                                if not visual.FrameTracer then 
+                                    visual.FrameTracer = Instance.new("Frame")
+                                    visual.FrameTracer.BorderSizePixel = 0
+                                    visual.FrameTracer.AnchorPoint = Vector2.new(0.5, 0.5)
+                                    visual.FrameTracer.Parent = TracerScreenGui
+                                end
+                                update2DTracerFrame(visual.FrameTracer, screenStart, screenEnd, color)
+                            end
+                        else
+                            if visual.Tracer then visual.Tracer.Visible = false end
+                            if visual.FrameTracer then visual.FrameTracer.Visible = false end
+                        end
+                    else
+                        if visual.Tracer then visual.Tracer.Visible = false end
+                        if visual.FrameTracer then visual.FrameTracer.Visible = false end
+                    end
+                    espObjects[plr.Name] = visual
+                else
+                    cleanESPForPlayer(plr.Name)
+                end
+            else
+                cleanESPForPlayer(plr.Name)
+            end
+        end
+        for name, _ in pairs(espObjects) do if not Players:FindFirstChild(name) then cleanESPForPlayer(name) end end
+        
+        if Config.ESPDroppedGun then
+            local gun = getCachedDroppedGun()
+            local gunPart = gun and (gun:IsA("Tool") and gun:FindFirstChild("Handle") or gun)
+            if gunPart and not gunPart:FindFirstChild("DroppedGunHighlight") then
+                local hl = Instance.new("Highlight")
+                hl.Name = "DroppedGunHighlight"
+                hl.FillColor = Color3.fromRGB(255, 215, 0)
+                hl.OutlineColor = Color3.fromRGB(255, 255, 255)
+                hl.FillTransparency = 0.3
+                hl.OutlineTransparency = 0
+                hl.Parent = gunPart
+                
+                local b = Instance.new("BillboardGui")
+                b.Name = "DroppedGunLabel"
+                b.AlwaysOnTop = true
+                b.Size = UDim2.new(0, 100, 0, 30)
+                b.StudsOffset = Vector3.new(0, 2, 0)
+                b.Parent = gunPart
+                
+                local t = Instance.new("TextLabel")
+                t.Size = UDim2.new(1, 0, 1, 0)
+                t.BackgroundTransparency = 1
+                t.Text = "SHERIFF GUN"
+                t.TextColor3 = Color3.fromRGB(255, 215, 0)
+                t.Font = Enum.Font.GothamBlack
+                t.TextSize = 9
+                t.Parent = b
+            end
+        end
+end)
+table.insert(connections, espConn)
+
+local infJumpConn = UserInputService.JumpRequest:Connect(function()
+    if Config.InfJumpEnabled and LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid") then
+        LocalPlayer.Character:FindFirstChildOfClass("Humanoid"):ChangeState(Enum.HumanoidStateType.Jumping)
+    end
+end)
+table.insert(connections, infJumpConn)
+
+local hitboxLoop = task.spawn(function()
+    while task.wait(0.3) do
+        if Config.HitboxChanger then
+            hitboxesRestored = false
+            for _, plr in ipairs(Players:GetPlayers()) do
+                if plr ~= LocalPlayer and plr.Character then
+                    local root = plr.Character:FindFirstChild("HumanoidRootPart")
+                    if root then
+                        root.Size = Vector3.new(Config.HitboxSize, Config.HitboxSize, Config.HitboxSize)
+                        root.Transparency = Config.HitboxTrans
+                        root.Color = Color3.fromRGB(255, 255, 255)
+                        root.Material = Enum.Material.ForceField
+                        root.CanCollide = false
+                    end
+                end
+            end
+        elseif not hitboxesRestored then
+            hitboxesRestored = true
+            for _, plr in ipairs(Players:GetPlayers()) do
+                if plr ~= LocalPlayer and plr.Character then
+                    local root = plr.Character:FindFirstChild("HumanoidRootPart")
+                    if root then root.Size, root.Transparency, root.CanCollide = Vector3.new(2, 2, 1), 1, true end
+                end
+            end
+        end
+    end
+end)
+table.insert(connections, {Disconnect = function() task.cancel(hitboxLoop) end})
+
+local weaponModLoop = task.spawn(function()
+    while task.wait(0.5) do
+        if Config.NoRecoil or Config.FastFire then
+            local char = LocalPlayer.Character
+            local tool = char and char:FindFirstChildOfClass("Tool")
+            if tool then
+                for _, child in ipairs(tool:GetDescendants()) do
+                    if child:IsA("NumberValue") or child:IsA("IntValue") or child:IsA("DoubleConstrainedValue") then
+                        local lName = string.lower(child.Name)
+                        if Config.NoRecoil and (string.find(lName, "recoil") or string.find(lName, "kick")) then child.Value = 0 end
+                        if Config.FastFire and (string.find(lName, "cooldown") or string.find(lName, "delay") or string.find(lName, "firerate") or string.find(lName, "reload")) then child.Value = 0.01 end
+                    end
+                end
+            end
+        end
+    end
+end)
+table.insert(connections, {Disconnect = function() task.cancel(weaponModLoop) end})
+
+local escapeLoop = task.spawn(function()
+    while task.wait(0.1) do
+        if Config.AutoEscape then
+            local char = LocalPlayer.Character
+            local root = char and char:FindFirstChild("HumanoidRootPart")
+            if root then
+                for _, plr in ipairs(Players:GetPlayers()) do
+                    if plr ~= LocalPlayer and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
+                        local mChar = plr.Character
+                        -- Detect murderer by weapon (no role system)
+                        local hasMeleeWeapon = mChar:FindFirstChild("Knife") or mChar:FindFirstChild("RealKnife") or mChar:FindFirstChild("Blade") or mChar:FindFirstChild("Scythe")
+                        if hasMeleeWeapon then
+                            if (root.Position - mChar.HumanoidRootPart.Position).Magnitude < Config.AutoEscapeDist then
+                                root.CFrame = CFrame.new(42.2319, -86.2365, -273.6537)
+                                Library:Notify("Auto Escape Triggered!")
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+end)
+table.insert(connections, {Disconnect = function() task.cancel(escapeLoop) end})
+
+
+
+-- SpinBot
+local spinAngle = 0
+local spinConn = RunService.RenderStepped:Connect(function(dt)
+    if Config.SpinBot then
+        local char = LocalPlayer.Character
+        local root = char and char:FindFirstChild("HumanoidRootPart")
+        if root then
+            spinAngle = (spinAngle + Config.SpinSpeed) % 360
+            root.CFrame = CFrame.new(root.Position) 
+                * CFrame.Angles(0, math.rad(spinAngle), 0)
+        end
+    end
+end)
+table.insert(connections, spinConn)
+
+
+
+
+
+-- UI Settings logic (from original snippet)
+local MenuGroup = Tabs["UI Settings"]:AddLeftGroupbox("Menu", "wrench")
+MenuGroup:AddToggle("KeybindMenuOpen", {
+	Default = Library.KeybindFrame.Visible,
+	Text = "Open Keybind Menu",
+	Callback = function(value) Library.KeybindFrame.Visible = value end,
+})
+MenuGroup:AddToggle("ShowCustomCursor", {
+	Text = "Custom Cursor",
+	Default = Library.ShowCustomCursor,
+	Callback = function(Value) Library.ShowCustomCursor = Value end,
+})
+MenuGroup:AddDropdown("NotificationSide", {
+	Values = { "Left", "Right" },
+	Default = "Right",
+	Text = "Notification Side",
+	Callback = function(Value) Library:SetNotifySide(Value) end,
+})
+MenuGroup:AddDropdown("DPIDropdown", {
+	Values = { "50%", "75%", "100%", "125%", "150%", "175%", "200%" },
+	Default = "100%",
+	Text = "DPI Scale",
+	Callback = function(Value)
+		Value = Value:gsub("%%", "")
+		Library:SetDPIScale(tonumber(Value))
+	end,
+})
+MenuGroup:AddSlider("UICornerSlider", {
+	Text = "Corner Radius",
+	Default = Library.CornerRadius,
+	Min = 0,
+	Max = 20,
+	Rounding = 0,
+	Callback = function(value) Window:SetCornerRadius(value) end
+})
+MenuGroup:AddDivider()
+MenuGroup:AddLabel("Menu bind"):AddKeyPicker("MenuKeybind", { Default = "RightShift", NoUI = true, Text = "Menu keybind" })
+MenuGroup:AddButton("Unload", function() Library:Unload() end)
+Library.ToggleKeybind = Options.MenuKeybind
+
+ThemeManager:SetLibrary(Library)
+SaveManager:SetLibrary(Library)
+SaveManager:IgnoreThemeSettings()
+SaveManager:SetIgnoreIndexes({ "MenuKeybind" })
+ThemeManager:SetFolder("AbyssHub")
+SaveManager:SetFolder("AbyssHub/MVSD")
+SaveManager:BuildConfigSection(Tabs["UI Settings"])
+ThemeManager:ApplyToTab(Tabs["UI Settings"])
+SaveManager:LoadAutoloadConfig()
+
+-- Mobile/PC Toggle Bar (Draggable Button)
+local DraggableButton = Library:AddDraggableButton("Open/Close", function()
+    Library:Toggle()
+end, false, 94651747085280, "Left")
+
+-- [[ CLEANUP & ONUNLOAD ]]
+Library:OnUnload(function()
+    Library.Unloaded = true
+    for _, conn in ipairs(connections) do
+        if typeof(conn) == "RBXScriptConnection" then
+            conn:Disconnect()
+        elseif type(conn) == "table" and conn.Disconnect then
+            conn:Disconnect()
+        end
+    end
+    -- clear ESP
+    for plrName, objs in pairs(espObjects) do cleanESPForPlayer(plrName) end
+    -- clear hitboxes
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer and plr.Character then
+            local root = plr.Character:FindFirstChild("HumanoidRootPart")
+            if root then root.Size, root.Transparency, root.CanCollide = Vector3.new(2, 2, 1), 1, true end
+        end
+    end
+    if FOVCircle then pcall(function() FOVCircle:Remove() end) end
+    if TracerScreenGui then TracerScreenGui:Destroy() end
+end)
