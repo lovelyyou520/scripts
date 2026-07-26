@@ -1,6 +1,6 @@
 --[[
     #99nights UI
-    -- Teleport Only Version (Fixed) - Key System Removed
+    -- Teleport Only Version (Fixed) - Key System Removed + Patched Mechanics
 --]]
 
 -- [[ SERVICES ]]
@@ -609,7 +609,17 @@ local function LoadMainHub()
             triggerNotification("Kid position not found for " .. kidData.Name, Color3.fromRGB(255, 100, 100))
             return false
         end
-        teleportTo(CFrame.new(exactPos))
+
+        -- Temporarily disable collisions during teleport
+        local char = LocalPlayer.Character
+        if char then
+            for _, v in ipairs(char:GetDescendants()) do
+                if v:IsA("BasePart") then v.CanCollide = false end
+            end
+        end
+
+        -- Teleport slightly above the kid to avoid floor clipping
+        teleportTo(CFrame.new(exactPos + Vector3.new(0, 3, 0)))
         triggerNotification("Teleported to " .. kidData.Name, Color3.fromRGB(100, 255, 100))
         task.wait(0.2)
         
@@ -1033,15 +1043,15 @@ local function LoadMainHub()
                     return
                 end
                 
-                -- FIXED: Determine actual position by locating BasePart instead of Erroring on Model
+                -- FIXED: Added 2.5 Y offset for better drop tracking
                 local targetPos = Vector3.zero
                 if crockPot:IsA("Model") and crockPot.PrimaryPart then
-                    targetPos = crockPot.PrimaryPart.Position + Vector3.new(0, 1, 0)
+                    targetPos = crockPot.PrimaryPart.Position + Vector3.new(0, 2.5, 0)
                 elseif crockPot:IsA("BasePart") then
-                    targetPos = crockPot.Position + Vector3.new(0, 1, 0)
+                    targetPos = crockPot.Position + Vector3.new(0, 2.5, 0)
                 else
                     local part = crockPot:FindFirstChildWhichIsA("BasePart", true)
-                    if part then targetPos = part.Position + Vector3.new(0, 1, 0) end
+                    if part then targetPos = part.Position + Vector3.new(0, 2.5, 0) end
                 end
 
                 local foodNames = {"Carrot", "Steak", "Berry", "#1", "Mushroom", "Fish", "Bread", "Potato", "Tomato", "Lemon"}
@@ -1142,19 +1152,21 @@ local function LoadMainHub()
         triggerNotification("Teleported " .. count .. " items to dump!", Color3.fromRGB(100, 255, 100))
     end)
 
-    -- Combat Page (Revive fixed)
+    -- Combat Page
     local combatSection = AddSection(combatPage, "Revive Players")
     local Event = game:GetService("ReplicatedStorage"):FindFirstChild("RemoteEvents") and game:GetService("ReplicatedStorage").RemoteEvents:FindFirstChild("RequestRevivePlayer")
 
-    -- FIXED: Robustly checks workspace, Character, and GetNil. Falls back to Player object.
+    -- FIXED: Check if self is actually dead before reviving
     AddButton(combatSection, "Revive Self", function()
         task.spawn(function()
             if not Event then return end
-            local targetName = LocalPlayer.Name
-            local targetArg = workspace:FindFirstChild(targetName) or LocalPlayer.Character or GetNil(targetName) or LocalPlayer
-            
-            pcall(function() Event:FireServer(targetArg) end)
-            triggerNotification("Revive fired for self!", Color3.fromRGB(100,255,100))
+            local char = LocalPlayer.Character
+            local hum = char and char:FindFirstChildOfClass("Humanoid")
+            if hum and hum.Health <= 0 then
+                local targetArg = workspace:FindFirstChild(LocalPlayer.Name) or char or GetNil(LocalPlayer.Name) or LocalPlayer
+                pcall(function() Event:FireServer(targetArg) end)
+                triggerNotification("Revive fired for self!", Color3.fromRGB(100,255,100))
+            end
         end)
     end)
 
@@ -1186,11 +1198,16 @@ local function LoadMainHub()
             if not targetPlr then return end
             task.spawn(function()
                 if not Event then return end
-                -- FIXED: Robust check to find active bodies or use player token directly
-                local targetArg = workspace:FindFirstChild(targetPlr.Name) or targetPlr.Character or GetNil(targetPlr.Name) or targetPlr
                 
-                pcall(function() Event:FireServer(targetArg) end)
-                triggerNotification("Revived " .. targetPlr.DisplayName, Color3.fromRGB(100,255,100))
+                local targetChar = workspace:FindFirstChild(targetPlr.Name) or targetPlr.Character
+                local hum = targetChar and targetChar:FindFirstChildOfClass("Humanoid")
+                
+                -- FIXED: Only run and notify if the target player is dead
+                if hum and hum.Health <= 0 then
+                    local targetArg = targetChar or GetNil(targetPlr.Name) or targetPlr
+                    pcall(function() Event:FireServer(targetArg) end)
+                    triggerNotification("Revived " .. targetPlr.DisplayName, Color3.fromRGB(100,255,100))
+                end
             end)
         end)
         btn.Visible = false
@@ -1268,7 +1285,6 @@ local function LoadMainHub()
     end)
 
     -- ===== TROLL PAGE =====
-    -- Section for item troll
     local trollSection = AddSection(trollPage, "Item Troll")
     local autoTrollActive = false
     local selectedTrollItems = {}
@@ -1299,7 +1315,6 @@ local function LoadMainHub()
                     scanFolder(workspace)
                     scanFolder(workspace:FindFirstChild("Items"))
                     
-                    -- FIXED: Dynamically fetch Fog location on every interval
                     local dropCFrame = CFrame.new(0, -50000, 0) -- fallback
                     pcall(function()
                         local fog = workspace:FindFirstChild("Map") and workspace.Map:FindFirstChild("Boundaries") and workspace.Map.Boundaries:FindFirstChild("Fog")
@@ -1346,61 +1361,63 @@ local function LoadMainHub()
         end
     end)
 
-    -- Player Troll Features (No Clip, Infinite Jump, Fly, Fling Touch)
+    -- Player Troll Features
     local playerTrollSection = AddSection(trollPage, "Player Troll")
 
-    -- No Clip
+    -- FIXED: No Clip (uses Stepped)
     local noClipActive = false
+    local noClipConnection
     AddToggle(playerTrollSection, "No Clip", function(state)
         noClipActive = state
-        local char = LocalPlayer.Character
-        if not char then return end
         if state then
-            for _, v in ipairs(char:GetDescendants()) do
-                if v:IsA("BasePart") then
-                    v.CanCollide = false
+            noClipConnection = RunService.Stepped:Connect(function()
+                local char = LocalPlayer.Character
+                if char then
+                    for _, v in ipairs(char:GetDescendants()) do
+                        if v:IsA("BasePart") then
+                            v.CanCollide = false
+                        end
+                    end
                 end
-            end
+            end)
         else
-            for _, v in ipairs(char:GetDescendants()) do
-                if v:IsA("BasePart") then
-                    v.CanCollide = true
-                end
+            if noClipConnection then
+                noClipConnection:Disconnect()
+                noClipConnection = nil
             end
-        end
-    end)
-    LocalPlayer.CharacterAdded:Connect(function(char)
-        if noClipActive then
-            task.wait(0.5)
-            for _, v in ipairs(char:GetDescendants()) do
-                if v:IsA("BasePart") then
-                    v.CanCollide = false
+            local char = LocalPlayer.Character
+            if char then
+                for _, v in ipairs(char:GetDescendants()) do
+                    if v:IsA("BasePart") then
+                        v.CanCollide = true
+                    end
                 end
             end
         end
     end)
 
-    -- Infinite Jump
+    -- FIXED: Infinite Jump (uses JumpRequest)
     local infJumpActive = false
+    local infJumpConnection
     AddToggle(playerTrollSection, "Infinite Jump", function(state)
         infJumpActive = state
         if state then
-            task.spawn(function()
-                while infJumpActive do
-                    local char = LocalPlayer.Character
-                    local hum = char and char:FindFirstChildOfClass("Humanoid")
-                    if hum and hum.Health > 0 then
-                        if hum:GetState() == Enum.HumanoidStateType.Landed or hum:GetState() == Enum.HumanoidStateType.Running then
-                            hum:ChangeState(Enum.HumanoidStateType.Jumping)
-                        end
-                    end
-                    task.wait()
+            infJumpConnection = UserInputService.JumpRequest:Connect(function()
+                local char = LocalPlayer.Character
+                local hum = char and char:FindFirstChildOfClass("Humanoid")
+                if hum and hum.Health > 0 then
+                    hum:ChangeState(Enum.HumanoidStateType.Jumping)
                 end
             end)
+        else
+            if infJumpConnection then 
+                infJumpConnection:Disconnect() 
+                infJumpConnection = nil
+            end
         end
     end)
 
-    -- Fly
+    -- FIXED: Fly (uses PlatformStand)
     local flyActive = false
     local flyBodyVelocity, flyBodyGyro, flyConnection
     AddToggle(playerTrollSection, "Fly", function(state)
@@ -1408,9 +1425,12 @@ local function LoadMainHub()
         local char = LocalPlayer.Character
         if not char then return end
         local hrp = char:FindFirstChild("HumanoidRootPart")
-        if not hrp then return end
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if not hrp or not hum then return end
 
         if state then
+            hum.PlatformStand = true 
+            
             flyBodyVelocity = Instance.new("BodyVelocity")
             flyBodyVelocity.MaxForce = Vector3.new(400000, 400000, 400000)
             flyBodyVelocity.Velocity = Vector3.zero
@@ -1425,33 +1445,22 @@ local function LoadMainHub()
                 if not flyActive then return end
                 local speed = 50
                 local moveVector = Vector3.zero
-                if UserInputService:IsKeyDown(Enum.KeyCode.W) then
-                    moveVector = moveVector + Camera.CFrame.LookVector
-                end
-                if UserInputService:IsKeyDown(Enum.KeyCode.S) then
-                    moveVector = moveVector - Camera.CFrame.LookVector
-                end
-                if UserInputService:IsKeyDown(Enum.KeyCode.A) then
-                    moveVector = moveVector - Camera.CFrame.RightVector
-                end
-                if UserInputService:IsKeyDown(Enum.KeyCode.D) then
-                    moveVector = moveVector + Camera.CFrame.RightVector
-                end
-                if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
-                    moveVector = moveVector + Vector3.new(0, 1, 0)
-                end
-                if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then
-                    moveVector = moveVector - Vector3.new(0, 1, 0)
-                end
+                if UserInputService:IsKeyDown(Enum.KeyCode.W) then moveVector = moveVector + Camera.CFrame.LookVector end
+                if UserInputService:IsKeyDown(Enum.KeyCode.S) then moveVector = moveVector - Camera.CFrame.LookVector end
+                if UserInputService:IsKeyDown(Enum.KeyCode.A) then moveVector = moveVector - Camera.CFrame.RightVector end
+                if UserInputService:IsKeyDown(Enum.KeyCode.D) then moveVector = moveVector + Camera.CFrame.RightVector end
+                if UserInputService:IsKeyDown(Enum.KeyCode.Space) then moveVector = moveVector + Vector3.new(0, 1, 0) end
+                if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then moveVector = moveVector - Vector3.new(0, 1, 0) end
+                
                 if moveVector.Magnitude > 0 then
-                    moveVector = moveVector.Unit * speed
-                    flyBodyVelocity.Velocity = moveVector
+                    flyBodyVelocity.Velocity = moveVector.Unit * speed
                 else
                     flyBodyVelocity.Velocity = Vector3.zero
                 end
                 flyBodyGyro.CFrame = Camera.CFrame
             end)
         else
+            hum.PlatformStand = false
             if flyBodyVelocity then flyBodyVelocity:Destroy() end
             if flyBodyGyro then flyBodyGyro:Destroy() end
             if flyConnection then flyConnection:Disconnect() end
@@ -1580,5 +1589,4 @@ local function LoadMainHub()
     triggerNotification("VERSION 1.0", Color3.fromRGB(255, 255, 255))
 end
 
--- Load the main hub immediately (key system removed)
 LoadMainHub()
