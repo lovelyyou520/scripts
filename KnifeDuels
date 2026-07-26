@@ -1,9 +1,3 @@
---[[
-	Deobfuscated and de-authed script for Knife Duels.
-	Original auth system (abyss-scriptz-auth.up.railway.app) completely removed.
-	All features preserved: Silent Aim, Triggerbot, Visuals, Movement, UI Settings.
---]]
-
 -- Services
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -27,7 +21,7 @@ Library.ForceCheckbox = false
 Library.ShowToggleFrameInKeybinds = true
 
 local Window = Library:CreateWindow({
-	Title = "Fishy x Abyss",
+	Title = "Fishy x Abyss",        -- <-- Changed title here
 	Footer = "Knife Duels",
 	Icon = 94651747085280,
 	NotifySide = "Right",
@@ -394,13 +388,13 @@ MenuGroup:AddButton({
 
 Library.ToggleKeybind = Options.MenuKeybind
 
--- Theme & Save managers
+-- Theme & Save managers (folders updated to match new name)
 ThemeManager:SetLibrary(Library)
 SaveManager:SetLibrary(Library)
 SaveManager:IgnoreThemeSettings()
 SaveManager:SetIgnoreIndexes({ "MenuKeybind" })
-ThemeManager:SetFolder("AbyssScriptz")
-SaveManager:SetFolder("AbyssScriptz/KniveDuels")
+ThemeManager:SetFolder("FishyxAbyss")                      -- Changed
+SaveManager:SetFolder("FishyxAbyss/KniveDuels")           -- Changed
 SaveManager:BuildConfigSection(Tabs["UI Settings"])
 ThemeManager:ApplyToTab(Tabs["UI Settings"])
 SaveManager:LoadAutoloadConfig()
