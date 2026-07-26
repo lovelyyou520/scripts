@@ -485,7 +485,7 @@ local function LoadMainHub()
         Size = UDim2.new(1, -20, 0, 60),
         Position = UDim2.new(0, 10, 0, 10),
         BackgroundTransparency = 1,
-        Text = "  why are some items missing? its because the script automatically scans the map for items that are available to get!",
+        Text = "  why are some items missing? its because the script automatically scans the map for items that are currently available to obtain!",
         TextColor3 = Color3.fromRGB(255, 255, 255),
         Font = Enum.Font.GothamBold,
         TextSize = 14,
