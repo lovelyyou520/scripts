@@ -16,6 +16,7 @@ local Config = {
     AutoSpins = false,
     AutoYen = false,
     AutoAbilitySpins = false,
+    AutoSetBall = false,
     HitboxEnabled = false,
     HitboxScale = 5.0,
     HitboxRingVisible = true,
@@ -979,6 +980,58 @@ local function LoadMainHub()
             end)
         end
     end, 3)
+
+    -- Auto Set Ball
+    local autoSetRunning = false
+    AddToggle(farmSec, "Auto Set Ball", "AutoSetBall", function(v)
+        autoSetRunning = v
+        if v then
+            task.spawn(function()
+                local interactRemote = nil
+                pcall(function()
+                    interactRemote = game:GetService("ReplicatedStorage").Packages._Index["sleitnick_knit@1.7.0"].knit.Services.BallService.RF.Interact
+                end)
+                
+                while autoSetRunning do
+                    pcall(function()
+                        if not interactRemote then return end
+                        local char = LocalPlayer.Character
+                        local head = char and char:FindFirstChild("Head")
+                        if head then
+                            for _, model in ipairs(workspace:GetChildren()) do
+                                if model:IsA("Model") and model.Name:match("^CLIENT_BALL_%d+$") then
+                                    local ball = model:FindFirstChild("Ball.001") or model:FindFirstChildWhichIsA("BasePart")
+                                    if ball then
+                                        -- Detect direct collision based on the sizes of the ball and head
+                                        local collisionThreshold = (ball.Size.Magnitude / 2) + (head.Size.Magnitude / 2)
+                                        if (ball.Position - head.Position).Magnitude <= collisionThreshold then
+                                            local ballId = tonumber(model.Name:match("%d+")) or 72746084144
+                                            interactRemote:InvokeServer({
+                                                Charge = 1,
+                                                Move = "Set",
+                                                SpecialCharge = 0,
+                                                TiltDirection = Vector3.new(0, 0, 0),
+                                                BallId = ballId,
+                                                MoveDirection = Vector3.new(0, 0, 0),
+                                                Key = "Set" .. tostring(math.random(1000000, 9999999)),
+                                                From = "Client",
+                                                LookVector = char:FindFirstChild("HumanoidRootPart") and char.HumanoidRootPart.CFrame.LookVector or Vector3.new(0, 0, -1),
+                                                Timestamp = os.clock(),
+                                                ClientCanRunSpecial = false,
+                                                CustomClient = {}
+                                            })
+                                            task.wait(0.5) -- Add slight cooldown to avoid spamming remote too much on same ball
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                    end)
+                    task.wait(0.05)
+                end
+            end)
+        end
+    end, 4)
 
     -- ============================================================
     --  MOVEMENT & SETTINGS (unchanged)
