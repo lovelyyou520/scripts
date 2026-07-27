@@ -17,6 +17,8 @@ local Config = {
     AutoYen = false,
     AutoAbilitySpins = false,
     AutoSetBall = false,
+    AutoSetIgnoreHitbox = false,
+    AutoSetHitboxScale = 2.0,
     HitboxEnabled = false,
     HitboxScale = 5.0,
     HitboxRingVisible = true,
@@ -997,13 +999,21 @@ local function LoadMainHub()
                         if not interactRemote then return end
                         local char = LocalPlayer.Character
                         local head = char and char:FindFirstChild("Head")
-                        if head then
+                        local humanoid = char and char:FindFirstChild("Humanoid")
+                        if head and humanoid then
+                            -- Prevent auto set if player is jumping or freefalling
+                            local isAirborne = humanoid:GetState() == Enum.HumanoidStateType.Freefall or humanoid:GetState() == Enum.HumanoidStateType.Jumping or humanoid.FloorMaterial == Enum.Material.Air
+                            if isAirborne then return end
+
                             for _, model in ipairs(workspace:GetChildren()) do
                                 if model:IsA("Model") and model.Name:match("^CLIENT_BALL_%d+$") then
                                     local ball = model:FindFirstChild("Ball.001") or model:FindFirstChildWhichIsA("BasePart")
                                     if ball then
+                                        -- Determine the ball size magnitude to use for collision
+                                        local ballMag = Config.AutoSetIgnoreHitbox and (Vector3.new(2, 2, 2) * (Config.AutoSetHitboxScale or 2.0)).Magnitude or ball.Size.Magnitude
                                         -- Detect direct collision based on the sizes of the ball and head
-                                        local collisionThreshold = (ball.Size.Magnitude / 2) + (head.Size.Magnitude / 2)
+                                        local collisionThreshold = (ballMag / 2) + (head.Size.Magnitude / 2)
+                                        
                                         if (ball.Position - head.Position).Magnitude <= collisionThreshold then
                                             local ballId = tonumber(model.Name:match("%d+")) or 72746084144
                                             interactRemote:InvokeServer({
@@ -1032,6 +1042,16 @@ local function LoadMainHub()
             end)
         end
     end, 4)
+
+    -- Ignore Hitbox Size for Auto Set
+    local autoSetHitboxSlider
+    AddToggle(farmSec, "Use Custom Set Hitbox", "AutoSetIgnoreHitbox", function(v)
+        if autoSetHitboxSlider then autoSetHitboxSlider.Visible = v end
+    end, 5)
+
+    autoSetHitboxSlider = AddSlider(farmSec, "Auto Set Hitbox Scale", 1, 25, Config.AutoSetHitboxScale or 2.0, "AutoSetHitboxScale")
+    autoSetHitboxSlider.LayoutOrder = 6
+    autoSetHitboxSlider.Visible = Config.AutoSetIgnoreHitbox
 
     -- ============================================================
     --  MOVEMENT & SETTINGS (unchanged)
