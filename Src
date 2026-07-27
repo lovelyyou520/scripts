@@ -1,0 +1,1379 @@
+-- [[ CONFIGURATION ]]
+local CONFIG_FILE = "FishyHub_Config.json"
+
+-- [[ SERVICES ]]
+local CoreGui = game:GetService("CoreGui")
+local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
+local Lighting = game:GetService("Lighting")
+local SoundService = game:GetService("SoundService")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local LocalPlayer = Players.LocalPlayer
+
+local Config = {
+    AutoSpins = false,
+    AutoYen = false,
+    AutoAbilitySpins = false,
+    HitboxEnabled = false,
+    HitboxScale = 5.0,
+    HitboxRingVisible = true,
+    DirectionalJump = false,
+    AirMoveEnabled = false,
+    AirMoveSpeed = 50,
+    FPSBooster = false,
+    FPSLimit = 120,
+    DirectionLines = false,
+    DirectionLineThickness = 0.15,
+    PotatoOptimizer = false,
+    MenuKey = Enum.KeyCode.RightAlt,
+    Theme = "Purple",
+    DesyncEnabled = false,
+    DesyncDuration = 0.1
+}
+
+-- ==================== CONFIG PERSISTENCE ====================
+local function SaveConfig()
+    local data = {}
+    for k, v in pairs(Config) do
+        if k == "MenuKey" then
+            if v == Enum.UserInputType.MouseButton2 then
+                data[k] = "RightClick"
+            else
+                data[k] = v.Name  -- KeyCode name
+            end
+        else
+            data[k] = v
+        end
+    end
+    pcall(function()
+        if writefile then
+            writefile(CONFIG_FILE, game:GetService("HttpService"):JSONEncode(data))
+        end
+    end)
+end
+
+local function LoadConfig()
+    local success, content = pcall(function()
+        if readfile then
+            return readfile(CONFIG_FILE)
+        end
+        return nil
+    end)
+    if success and content then
+        local success2, data = pcall(function()
+            return game:GetService("HttpService"):JSONDecode(content)
+        end)
+        if success2 and data then
+            for k, v in pairs(data) do
+                if k == "MenuKey" then
+                    if v == "RightClick" then
+                        Config[k] = Enum.UserInputType.MouseButton2
+                    else
+                        pcall(function() Config[k] = Enum.KeyCode[v] end)
+                    end
+                else
+                    Config[k] = v
+                end
+            end
+        end
+    end
+end
+
+-- Load saved settings
+LoadConfig()
+
+-- ==================== CONNECTIONS TABLE ====================
+local connections = {}
+local activeTab = nil
+
+-- Cleanup old GUIs
+pcall(function()
+    if CoreGui:FindFirstChild("FishyHubKeySystem") then CoreGui:FindFirstChild("FishyHubKeySystem"):Destroy() end
+    if CoreGui:FindFirstChild("FishyHubCollabGui") then CoreGui:FindFirstChild("FishyHubCollabGui"):Destroy() end
+end)
+pcall(function()
+    local pg = LocalPlayer:FindFirstChildOfClass("PlayerGui")
+    if pg then
+        if pg:FindFirstChild("FishyHubKeySystem") then pg:FindFirstChild("FishyHubKeySystem"):Destroy() end
+        if pg:FindFirstChild("FishyHubCollabGui") then pg:FindFirstChild("FishyHubCollabGui"):Destroy() end
+    end
+end)
+
+-- Instance creation helper
+local function create(class, props, parent)
+    if class == "TextLabel" or class == "TextButton" or class == "TextBox" then
+        props.TextColor3 = Color3.fromRGB(255, 255, 255)
+        if class == "TextBox" and props.PlaceholderColor3 then
+            props.PlaceholderColor3 = Color3.fromRGB(200, 200, 200)
+        end
+    end
+
+    if class == "Frame" or class == "CanvasGroup" or class == "TextButton" or class == "TextBox" or class == "ScrollingFrame" then
+        if props.BackgroundColor3 then
+            props.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+        end
+        if not props.BackgroundTransparency or props.BackgroundTransparency < 0.6 then
+            props.BackgroundTransparency = 0.2
+        end
+    end
+
+    local obj = Instance.new(class)
+    for k, v in pairs(props) do
+        obj[k] = v
+    end
+    if parent then obj.Parent = parent end
+
+    if (class == "Frame" or class == "CanvasGroup" or class == "ScrollingFrame") and props.BackgroundTransparency ~= 1 then
+        local uiStroke = Instance.new("UIStroke")
+        uiStroke.Color = Color3.fromRGB(40, 40, 40)
+        uiStroke.Thickness = 0.4
+        uiStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+        uiStroke.Parent = obj
+    end
+
+    return obj
+end
+
+-- Universal Mobile/PC Dragging Helper
+local function MakeDraggable(frame)
+    local dragging = false
+    local dragInput, dragStart, startPos
+    local originalSize = frame.Size
+    local lastInputPos
+    local lastTrailTime = 0
+
+    frame.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragStart = input.Position
+            startPos = frame.Position
+            lastInputPos = input.Position
+            
+            local inputEnded
+            inputEnded = input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                    inputEnded:Disconnect()
+                    
+                    local finalDelta = input.Position - dragStart
+                    TweenService:Create(frame, TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+                        Size = originalSize,
+                        Position = UDim2.new(
+                            startPos.X.Scale, startPos.X.Offset + finalDelta.X,
+                            startPos.Y.Scale, startPos.Y.Offset + finalDelta.Y
+                        ),
+                        Rotation = 0
+                    }):Play()
+                end
+            end)
+        end
+    end)
+    
+    frame.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+            dragInput = input
+        end
+    end)
+    
+    UserInputService.InputChanged:Connect(function(input)
+        if input == dragInput and dragging then
+            local delta = input.Position - dragStart
+            local velocity = input.Position - lastInputPos
+            lastInputPos = input.Position
+
+            local targetPos = UDim2.new(
+                startPos.X.Scale, startPos.X.Offset + delta.X,
+                startPos.Y.Scale, startPos.Y.Offset + delta.Y
+            )
+
+            -- Squish & Warp logic
+            local velX = math.abs(velocity.X)
+            local velY = math.abs(velocity.Y)
+            
+            local stretchX = 1 + math.clamp(velX / 50, 0, 0.15) - math.clamp(velY / 75, 0, 0.05)
+            local stretchY = 1 + math.clamp(velY / 50, 0, 0.15) - math.clamp(velX / 75, 0, 0.05)
+            
+            local targetSize = UDim2.new(
+                originalSize.X.Scale, originalSize.X.Offset * stretchX,
+                originalSize.Y.Scale, originalSize.Y.Offset * stretchY
+            )
+            
+            local diffX = targetSize.X.Offset - originalSize.X.Offset
+            local diffY = targetSize.Y.Offset - originalSize.Y.Offset
+            
+            local adjustedPos = UDim2.new(
+                targetPos.X.Scale, targetPos.X.Offset - diffX / 2,
+                targetPos.Y.Scale, targetPos.Y.Offset - diffY / 2
+            )
+            
+            local targetRotation = math.clamp(velocity.X * 0.5, -12, 12)
+
+            TweenService:Create(frame, TweenInfo.new(0.15, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+                Position = adjustedPos,
+                Size = targetSize,
+                Rotation = targetRotation
+            }):Play()
+
+            -- Trail Effect
+            if tick() - lastTrailTime > 0.04 then
+                lastTrailTime = tick()
+                
+                local trail = Instance.new("Frame")
+                trail.Size = targetSize
+                trail.Position = adjustedPos
+                trail.Rotation = targetRotation
+                trail.BackgroundColor3 = frame.BackgroundColor3
+                trail.BackgroundTransparency = 0.5
+                trail.BorderSizePixel = 0
+                trail.ZIndex = frame.ZIndex - 1
+                trail.Parent = frame.Parent
+
+                local existingCorner = frame:FindFirstChildOfClass("UICorner")
+                if existingCorner then
+                    existingCorner:Clone().Parent = trail
+                else
+                    local corner = Instance.new("UICorner")
+                    corner.CornerRadius = UDim.new(0, 10)
+                    corner.Parent = trail
+                end
+
+                local existingStroke = frame:FindFirstChildOfClass("UIStroke")
+                if existingStroke then
+                    local stroke = existingStroke:Clone()
+                    stroke.Parent = trail
+                    TweenService:Create(stroke, TweenInfo.new(0.35), {Transparency = 1}):Play()
+                end
+
+                local shrink = 6
+                local tweenInfo = TweenInfo.new(0.35, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+                local tween = TweenService:Create(trail, tweenInfo, {
+                    BackgroundTransparency = 1,
+                    Size = UDim2.new(trail.Size.X.Scale, trail.Size.X.Offset - shrink*2, trail.Size.Y.Scale, trail.Size.Y.Offset - shrink*2),
+                    Position = UDim2.new(trail.Position.X.Scale, trail.Position.X.Offset + shrink, trail.Position.Y.Scale, trail.Position.Y.Offset + shrink),
+                    Rotation = 0
+                })
+                
+                tween:Play()
+                tween.Completed:Connect(function()
+                    trail:Destroy()
+                end)
+            end
+        end
+    end)
+end
+
+local function playClickSound()
+    pcall(function()
+        local sound = Instance.new("Sound", SoundService)
+        sound.SoundId = "rbxassetid://6042053629"
+        sound.Volume = 0.5
+        sound.PlayOnRemove = true
+        sound:Destroy()
+    end)
+end
+
+local function GetCharacterData()
+    local char = LocalPlayer.Character
+    if char then
+        return char:FindFirstChild("Humanoid"), char:FindFirstChild("HumanoidRootPart")
+    end
+    return nil, nil
+end
+
+-- Theme definitions
+local ThemeColors = {
+    Purple = {
+        Stroke = Color3.fromRGB(200, 180, 255),
+        Gradient = { Color3.fromRGB(200, 180, 255), Color3.fromRGB(160, 140, 230), Color3.fromRGB(120, 100, 200), Color3.fromRGB(80, 60, 150) }
+    },
+    Blue = {
+        Stroke = Color3.fromRGB(180, 200, 255),
+        Gradient = { Color3.fromRGB(180, 200, 255), Color3.fromRGB(140, 170, 230), Color3.fromRGB(100, 140, 200), Color3.fromRGB(60, 100, 150) }
+    },
+    Holographic = {
+        Stroke = Color3.fromRGB(255, 255, 255),
+        Gradient = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 0, 255)),
+            ColorSequenceKeypoint.new(0.25, Color3.fromRGB(0, 255, 255)),
+            ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255, 255, 0)),
+            ColorSequenceKeypoint.new(0.75, Color3.fromRGB(255, 0, 0)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 0, 255))
+        })
+    },
+    CottonCandy = {
+        Stroke = Color3.fromRGB(255, 255, 255),
+        Gradient = { Color3.fromRGB(135, 206, 235), Color3.fromRGB(200, 160, 255), Color3.fromRGB(255, 105, 180), Color3.fromRGB(255, 182, 193) }
+    }
+}
+
+local function ApplyTheme(gui, themeName)
+    local theme = ThemeColors[themeName] or ThemeColors.Purple
+    if not gui then return end
+    for _, obj in ipairs(gui:GetDescendants()) do
+        if obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox") then
+            obj.TextColor3 = Color3.fromRGB(255, 255, 255)
+        end
+        if obj:IsA("UIGradient") then
+            if type(theme.Gradient) == "table" then
+                obj.Color = ColorSequence.new({
+                    ColorSequenceKeypoint.new(0, theme.Gradient[1]),
+                    ColorSequenceKeypoint.new(0.33, theme.Gradient[2]),
+                    ColorSequenceKeypoint.new(0.66, theme.Gradient[3]),
+                    ColorSequenceKeypoint.new(1, theme.Gradient[4])
+                })
+            else
+                obj.Color = theme.Gradient
+            end
+        elseif obj:IsA("UIStroke") and obj.ApplyStrokeMode == Enum.ApplyStrokeMode.Border then
+            obj.Color = theme.Stroke
+        end
+    end
+end
+
+local function LoadMainHub()
+    local ScreenGui = create("ScreenGui", {Name = "FishyHubCollabGui", ResetOnSpawn = false, ZIndexBehavior = Enum.ZIndexBehavior.Sibling})
+    local guiParent = nil
+    pcall(function()
+        if RunService:IsStudio() then
+            guiParent = LocalPlayer:FindFirstChildOfClass("PlayerGui")
+        else
+            guiParent = game:GetService("CoreGui") or LocalPlayer:FindFirstChildOfClass("PlayerGui")
+        end
+    end)
+    if not guiParent then guiParent = LocalPlayer:WaitForChild("PlayerGui", 8) end
+    ScreenGui.Parent = guiParent
+    
+    -- Notifications
+    local AlertFrameContainer = create("Frame", {Size = UDim2.new(0, 260, 0, 400), Position = UDim2.new(1, -270, 0, 50), BackgroundTransparency = 1}, ScreenGui)
+    create("UIListLayout", {SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 8)}, AlertFrameContainer)
+    local function triggerNotification(message, color)
+        task.spawn(function()
+            playClickSound()
+            local alert = create("Frame", {Size = UDim2.new(1, 0, 0, 45), Position = UDim2.new(1, 10, 0, 0), BackgroundColor3 = Color3.fromRGB(25, 25, 30), BorderSizePixel = 0}, AlertFrameContainer)
+            create("UICorner", {CornerRadius = UDim.new(0, 6)}, alert)
+            create("UIStroke", {Color = Color3.fromRGB(120, 120, 120), Thickness = 1}, alert)
+            
+            local stripe = create("Frame", {Size = UDim2.new(0, 4, 1, 0), Position = UDim2.new(0, 0, 0, 0), BackgroundColor3 = color or Color3.fromRGB(255, 255, 255), BorderSizePixel = 0}, alert)
+            create("UICorner", {CornerRadius = UDim.new(0, 6)}, stripe)
+            
+            create("TextLabel", {Size = UDim2.new(1, -24, 1, 0), Position = UDim2.new(0, 14, 0, 0), BackgroundTransparency = 1, Text = message, TextColor3 = Color3.fromRGB(255, 255, 255), Font = Enum.Font.GothamBold, TextSize = 10, TextXAlignment = Enum.TextXAlignment.Left}, alert)
+            
+            TweenService:Create(alert, TweenInfo.new(0.35, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Position = UDim2.new(0, 0, 0, 0)}):Play()
+            task.wait(3.5)
+            local slideOut = TweenService:Create(alert, TweenInfo.new(0.35, Enum.EasingStyle.Quart, Enum.EasingDirection.In), {Position = UDim2.new(1, 10, 0, 0)})
+            slideOut:Play()
+            slideOut.Completed:Wait()
+            alert:Destroy()
+        end)
+    end
+    
+    -- Main Frame
+    local MainFrame = create("CanvasGroup", {Size = UDim2.new(0, 580, 0, 400), Position = UDim2.new(0.5, -290, 0.5, -200), BackgroundColor3 = Color3.fromRGB(25, 25, 30), BackgroundTransparency = 0.05, BorderSizePixel = 0, GroupTransparency = 0, Active = true}, ScreenGui)
+    create("UICorner", {CornerRadius = UDim.new(0, 10)}, MainFrame)
+    create("UIStroke", {Color = Color3.fromRGB(80, 80, 80), Thickness = 1.2, ApplyStrokeMode = Enum.ApplyStrokeMode.Border}, MainFrame)
+    
+    local gradient = Instance.new("UIGradient")
+    gradient.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(55, 45, 75)),
+        ColorSequenceKeypoint.new(0.33, Color3.fromRGB(45, 35, 65)),
+        ColorSequenceKeypoint.new(0.66, Color3.fromRGB(35, 25, 55)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(25, 15, 45))
+    })
+    gradient.Rotation = 45
+    gradient.Parent = MainFrame
+    
+    MakeDraggable(MainFrame)
+    
+    local Sidebar = create("Frame", {Size = UDim2.new(0, 140, 1, 0), BackgroundColor3 = Color3.fromRGB(20, 20, 25), BackgroundTransparency = 0.3, BorderSizePixel = 0}, MainFrame)
+    create("UICorner", {CornerRadius = UDim.new(0, 10)}, Sidebar)
+    create("Frame", {Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(0, 140, 0, 0), BackgroundColor3 = Color3.fromRGB(60, 60, 60), BorderSizePixel = 0}, MainFrame)
+    
+    local LogoFrame = create("Frame", {Size = UDim2.new(1, 0, 0, 70), BackgroundTransparency = 1}, Sidebar)
+    create("TextLabel", {Size = UDim2.new(1, 0, 0, 40), Position = UDim2.new(0, 0, 0, 10), BackgroundTransparency = 1, Text = "  FISHY ^-^", TextColor3 = Color3.fromRGB(255, 255, 255), Font = Enum.Font.GothamBlack, TextSize = 18}, LogoFrame)
+    create("TextLabel", {Size = UDim2.new(1, 0, 0, 15), Position = UDim2.new(0, 0, 0, 40), BackgroundTransparency = 1, Text = "discord: @fishylvl", TextColor3 = Color3.fromRGB(255, 255, 255), Font = Enum.Font.Code, TextSize = 9}, LogoFrame)
+    
+    local StatsContainer = create("Frame", {Size = UDim2.new(0, 320, 0, 34), Position = UDim2.new(0, 150, 0, 10), BackgroundColor3 = Color3.fromRGB(25, 25, 30), BackgroundTransparency = 0.2, BorderSizePixel = 0}, MainFrame)
+    create("UICorner", {CornerRadius = UDim.new(0, 6)}, StatsContainer)
+    create("UIStroke", {Color = Color3.fromRGB(80, 80, 80), Thickness = 1}, StatsContainer)
+    
+    local fpsLabel = create("TextLabel", {Size = UDim2.new(0.5, -10, 1, 0), Position = UDim2.new(0, 10, 0, 0), BackgroundTransparency = 1, Text = "FPS: --", TextColor3 = Color3.fromRGB(255, 255, 255), Font = Enum.Font.GothamSemibold, TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left}, StatsContainer)
+    local pingLabel = create("TextLabel", {Size = UDim2.new(0.5, -10, 1, 0), Position = UDim2.new(0.5, 0, 0, 0), BackgroundTransparency = 1, Text = "Ping: -- ms", TextColor3 = Color3.fromRGB(255, 255, 255), Font = Enum.Font.GothamSemibold, TextSize = 11, TextXAlignment = Enum.TextXAlignment.Right}, StatsContainer)
+    
+    local lastUpdate, frameCount = os.clock(), 0
+    RunService.RenderStepped:Connect(function()
+        frameCount = frameCount + 1
+        if os.clock() - lastUpdate >= 1 then
+            fpsLabel.Text = "FPS: " .. frameCount
+            local ping = "N/A"
+            pcall(function()
+                ping = tostring(math.floor(LocalPlayer:GetNetworkPing() * 1000))
+            end)
+            pingLabel.Text = "Ping: " .. ping .. " ms"
+            frameCount, lastUpdate = 0, os.clock()
+        end
+    end)
+    
+    local CloseBtn = create("TextButton", {Size = UDim2.new(0, 34, 0, 34), Position = UDim2.new(1, -44, 0, 10), BackgroundColor3 = Color3.fromRGB(25, 25, 30), Text = "X", TextColor3 = Color3.fromRGB(255, 255, 255), Font = Enum.Font.GothamBold, TextSize = 12}, MainFrame)
+    create("UICorner", {CornerRadius = UDim.new(0, 6)}, CloseBtn)
+    local CloseStroke = create("UIStroke", {Color = Color3.fromRGB(80, 80, 80), Thickness = 1}, CloseBtn)
+    
+    CloseBtn.MouseButton1Click:Connect(function() 
+        playClickSound() 
+        local fadeOut = TweenService:Create(MainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {GroupTransparency = 1})
+        fadeOut:Play()
+        fadeOut.Completed:Wait()
+        ScreenGui:Destroy() 
+    end)
+    CloseBtn.MouseEnter:Connect(function() 
+        TweenService:Create(CloseBtn, TweenInfo.new(0.15), {BackgroundColor3 = Color3.fromRGB(255, 50, 50), TextColor3 = Color3.fromRGB(255, 255, 255)}):Play() 
+        TweenService:Create(CloseStroke, TweenInfo.new(0.15), {Color = Color3.fromRGB(255, 50, 50)}):Play()
+    end)
+    CloseBtn.MouseLeave:Connect(function() 
+        TweenService:Create(CloseBtn, TweenInfo.new(0.15), {BackgroundColor3 = Color3.fromRGB(45, 45, 50), TextColor3 = Color3.fromRGB(255, 255, 255)}):Play() 
+        TweenService:Create(CloseStroke, TweenInfo.new(0.15), {Color = Color3.fromRGB(120, 120, 120)}):Play()
+    end)
+    
+    local MinimizeBtn = create("TextButton", {Size = UDim2.new(0, 34, 0, 34), Position = UDim2.new(1, -88, 0, 10), BackgroundColor3 = Color3.fromRGB(25, 25, 30), Text = "—", TextColor3 = Color3.fromRGB(255, 255, 255), Font = Enum.Font.GothamBold, TextSize = 12}, MainFrame)
+    create("UICorner", {CornerRadius = UDim.new(0, 6)}, MinimizeBtn)
+    local MinimizeStroke = create("UIStroke", {Color = Color3.fromRGB(80, 80, 80), Thickness = 1}, MinimizeBtn)
+    
+    local minimized = false
+    local restoreFrame = nil
+    local lastMainPos = UDim2.new(0.5, -290, 0.5, -200)
+    local lastMinPos = UDim2.new(0.5, -100, 0, 10)
+    
+    MinimizeBtn.MouseButton1Click:Connect(function()
+        playClickSound()
+        if minimized then return end
+        minimized = true
+        
+        lastMainPos = MainFrame.Position
+        
+        restoreFrame = create("CanvasGroup", {
+            Size = UDim2.new(0, 200, 0, 40),
+            Position = lastMinPos,
+            BackgroundColor3 = Color3.fromRGB(25, 25, 30),
+            BackgroundTransparency = 0.05,
+            BorderSizePixel = 0,
+            GroupTransparency = 1,
+            Active = true
+        }, ScreenGui)
+        create("UICorner", {CornerRadius = UDim.new(0, 6)}, restoreFrame)
+        create("UIStroke", {Color = Color3.fromRGB(80, 80, 80), Thickness = 1.2, ApplyStrokeMode = Enum.ApplyStrokeMode.Border}, restoreFrame)
+        
+        local restoreGradient = Instance.new("UIGradient")
+        restoreGradient.Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(55, 45, 75)),
+            ColorSequenceKeypoint.new(0.33, Color3.fromRGB(45, 35, 65)),
+            ColorSequenceKeypoint.new(0.66, Color3.fromRGB(35, 25, 55)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(25, 15, 45))
+        })
+        restoreGradient.Rotation = 45
+        restoreGradient.Parent = restoreFrame
+        
+        ApplyTheme(ScreenGui, Config.Theme)  -- Keep minimized bar matching current theme
+        
+        MakeDraggable(restoreFrame)
+        
+        create("TextLabel", {
+            Size = UDim2.new(0.7, 0, 1, 0),
+            Position = UDim2.new(0, 10, 0, 0),
+            BackgroundTransparency = 1,
+            Text = "FISHY [Minimized]",
+            TextColor3 = Color3.fromRGB(255, 255, 255),
+            Font = Enum.Font.GothamBold,
+            TextSize = 11,
+            TextXAlignment = Enum.TextXAlignment.Left
+        }, restoreFrame)
+        
+        local restoreBtn = create("TextButton", {
+            Size = UDim2.new(0, 50, 0, 28),
+            Position = UDim2.new(1, -58, 0.5, -14),
+            BackgroundColor3 = Color3.fromRGB(25, 25, 30),
+            Text = "▲",
+            TextColor3 = Color3.fromRGB(255, 255, 255),
+            Font = Enum.Font.GothamBold,
+            TextSize = 12
+        }, restoreFrame)
+        create("UICorner", {CornerRadius = UDim.new(0, 4)}, restoreBtn)
+        local restoreBtnStroke = create("UIStroke", {Color = Color3.fromRGB(80, 80, 80), Thickness = 1}, restoreBtn)
+        
+        TweenService:Create(restoreFrame, TweenInfo.new(0.4, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {GroupTransparency = 0}):Play()
+        local minimizeTween = TweenService:Create(MainFrame, TweenInfo.new(0.4, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+            GroupTransparency = 1,
+            Size = UDim2.new(0, 200, 0, 40),
+            Position = lastMinPos
+        })
+        minimizeTween:Play()
+        minimizeTween.Completed:Wait()
+        
+        MainFrame.Visible = false
+        MainFrame.Size = UDim2.new(0, 580, 0, 400)
+        MainFrame.Position = lastMainPos
+        
+        restoreBtn.MouseButton1Click:Connect(function()
+            playClickSound()
+            if restoreFrame then
+                lastMinPos = restoreFrame.Position
+                
+                MainFrame.Size = UDim2.new(0, 200, 0, 40)
+                MainFrame.Position = lastMinPos
+                MainFrame.GroupTransparency = 1
+                MainFrame.Visible = true
+                
+                TweenService:Create(restoreFrame, TweenInfo.new(0.4, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {GroupTransparency = 1}):Play()
+                local restoreTween = TweenService:Create(MainFrame, TweenInfo.new(0.4, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+                    GroupTransparency = 0,
+                    Size = UDim2.new(0, 580, 0, 400),
+                    Position = lastMainPos
+                })
+                restoreTween:Play()
+                restoreTween.Completed:Wait()
+                
+                restoreFrame:Destroy()
+                restoreFrame = nil
+            end
+            minimized = false
+        end)
+        restoreBtn.MouseEnter:Connect(function()
+            TweenService:Create(restoreBtn, TweenInfo.new(0.15), {BackgroundColor3 = Color3.fromRGB(60, 60, 70), TextColor3 = Color3.fromRGB(255, 255, 255)}):Play()
+            TweenService:Create(restoreBtnStroke, TweenInfo.new(0.15), {Color = Color3.fromRGB(200, 200, 200)}):Play()
+        end)
+        restoreBtn.MouseLeave:Connect(function()
+            TweenService:Create(restoreBtn, TweenInfo.new(0.15), {BackgroundColor3 = Color3.fromRGB(45, 45, 50), TextColor3 = Color3.fromRGB(255, 255, 255)}):Play()
+            TweenService:Create(restoreBtnStroke, TweenInfo.new(0.15), {Color = Color3.fromRGB(120, 120, 120)}):Play()
+        end)
+    end)
+    MinimizeBtn.MouseEnter:Connect(function()
+        TweenService:Create(MinimizeBtn, TweenInfo.new(0.15), {BackgroundColor3 = Color3.fromRGB(60, 60, 70), TextColor3 = Color3.fromRGB(255, 255, 255)}):Play()
+        TweenService:Create(MinimizeStroke, TweenInfo.new(0.15), {Color = Color3.fromRGB(200, 200, 200)}):Play()
+    end)
+    MinimizeBtn.MouseLeave:Connect(function()
+        TweenService:Create(MinimizeBtn, TweenInfo.new(0.15), {BackgroundColor3 = Color3.fromRGB(45, 45, 50), TextColor3 = Color3.fromRGB(255, 255, 255)}):Play()
+        TweenService:Create(MinimizeStroke, TweenInfo.new(0.15), {Color = Color3.fromRGB(120, 120, 120)}):Play()
+    end)
+    
+    local TabContainer = create("Frame", {Size = UDim2.new(1, 0, 1, -80), Position = UDim2.new(0, 0, 0, 80), BackgroundTransparency = 1}, Sidebar)
+    create("UIListLayout", {SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 10)}, TabContainer)
+    create("UIPadding", {PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10)}, TabContainer)
+    
+    local PageContainer = create("CanvasGroup", {Size = UDim2.new(1, -160, 1, -65), Position = UDim2.new(0, 150, 0, 55), BackgroundTransparency = 1, GroupTransparency = 0}, MainFrame)
+    local pages = {}
+    
+    local function CreatePage(name)
+        local page = create("ScrollingFrame", {Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 2, ScrollBarImageColor3 = Color3.fromRGB(255, 255, 255), ScrollBarImageTransparency = 0.5, AutomaticCanvasSize = Enum.AutomaticSize.Y, CanvasSize = UDim2.new(0, 0, 0, 0), Visible = false}, PageContainer)
+        create("UIListLayout", {SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 16)}, page)
+        create("UIPadding", {PaddingRight = UDim.new(0, 10), PaddingTop = UDim.new(0, 10), PaddingBottom = UDim.new(0, 10)}, page)
+        pages[name] = page
+        return page
+    end
+    
+    local farmPage = CreatePage("Farm")
+    local movementPage = CreatePage("Movement")
+    local settingsPage = CreatePage("Settings")
+    
+    local function SelectTab(tabName, btn)
+        if activeTab == tabName then return end
+        
+        if activeTab ~= nil then
+            local fadeOut = TweenService:Create(PageContainer, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {GroupTransparency = 1})
+            fadeOut:Play()
+            fadeOut.Completed:Wait()
+        else
+            PageContainer.GroupTransparency = 1
+        end
+        
+        activeTab = tabName
+        for name, page in pairs(pages) do page.Visible = (name == tabName) end
+        TweenService:Create(PageContainer, TweenInfo.new(0.4, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {GroupTransparency = 0}):Play()
+        
+        for _, child in ipairs(TabContainer:GetChildren()) do
+            if child:IsA("TextButton") then
+                if child == btn then
+                    TweenService:Create(child, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(60, 60, 70), TextColor3 = Color3.fromRGB(255, 255, 255)}):Play()
+                    if child:FindFirstChild("UIStroke") then child.UIStroke.Color = Color3.fromRGB(200, 200, 200) end
+                else
+                    TweenService:Create(child, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(25, 25, 30), TextColor3 = Color3.fromRGB(255, 255, 255)}):Play()
+                    if child:FindFirstChild("UIStroke") then child.UIStroke.Color = Color3.fromRGB(80, 80, 80) end
+                end
+            end
+        end
+    end
+    
+    local function AddTab(name, layoutOrder)
+        local btn = create("TextButton", {Size = UDim2.new(1, 0, 0, 36), BackgroundColor3 = Color3.fromRGB(25, 25, 30), Text = "  " .. name, TextColor3 = Color3.fromRGB(255, 255, 255), Font = Enum.Font.GothamBold, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left, LayoutOrder = layoutOrder}, TabContainer)
+        create("UICorner", {CornerRadius = UDim.new(0, 5)}, btn)
+        create("UIStroke", {Color = Color3.fromRGB(80, 80, 80), Thickness = 1}, btn)
+        
+        btn.MouseButton1Click:Connect(function() playClickSound() SelectTab(name, btn) end)
+        btn.MouseEnter:Connect(function()
+            if activeTab ~= name then
+                TweenService:Create(btn, TweenInfo.new(0.15), {BackgroundColor3 = Color3.fromRGB(60, 60, 70), TextColor3 = Color3.fromRGB(255, 255, 255)}):Play()
+            end
+        end)
+        btn.MouseLeave:Connect(function()
+            if activeTab ~= name then
+                TweenService:Create(btn, TweenInfo.new(0.15), {BackgroundColor3 = Color3.fromRGB(45, 45, 50), TextColor3 = Color3.fromRGB(255, 255, 255)}):Play()
+            end
+        end)
+        return btn
+    end
+    
+    local firstBtn = AddTab("Farm", 1)
+    AddTab("Movement", 2)
+    AddTab("Settings", 3)
+    SelectTab("Farm", firstBtn)
+    
+    local function AddSection(parentPage, text)
+        local container = create("Frame", {Size = UDim2.new(1, 0, 0, 0), BackgroundColor3 = Color3.fromRGB(25, 25, 30), BackgroundTransparency = 0.3, BorderSizePixel = 0}, parentPage)
+        create("UICorner", {CornerRadius = UDim.new(0, 6)}, container)
+        create("UIStroke", {Color = Color3.fromRGB(80, 80, 80), Thickness = 1}, container)
+        
+        local layout = create("UIListLayout", {SortOrder = Enum.SortOrder.LayoutOrder}, container)
+        layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+            container.Size = UDim2.new(1, 0, 0, layout.AbsoluteContentSize.Y + 8)
+        end)
+        
+        create("TextLabel", {Size = UDim2.new(1, 0, 0, 32), BackgroundColor3 = Color3.fromRGB(20, 20, 25), BackgroundTransparency = 0.5, BorderSizePixel = 0, Text = "   " .. string.upper(text), TextColor3 = Color3.fromRGB(255, 255, 255), Font = Enum.Font.GothamBold, TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left, LayoutOrder = 0}, container)
+        create("Frame", {Size = UDim2.new(1, 0, 0, 1), BackgroundColor3 = Color3.fromRGB(80, 80, 80), BorderSizePixel = 0, LayoutOrder = 1}, container)
+        
+        local content = create("Frame", {Size = UDim2.new(1, 0, 0, 0), BackgroundTransparency = 1, LayoutOrder = 2}, container)
+        local contentLayout = create("UIListLayout", {SortOrder = Enum.SortOrder.LayoutOrder}, content)
+        contentLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+            content.Size = UDim2.new(1, 0, 0, contentLayout.AbsoluteContentSize.Y)
+        end)
+        
+        return content
+    end
+    
+    local function addRowDivider(rowFrame)
+        local count = 0
+        for _, child in ipairs(rowFrame.Parent:GetChildren()) do
+            if child:IsA("Frame") or child:IsA("TextButton") then count = count + 1 end
+        end
+        if count > 1 then
+            create("Frame", {Size = UDim2.new(1, -20, 0, 1), Position = UDim2.new(0, 10, 0, 0), BackgroundColor3 = Color3.fromRGB(80, 80, 80), BorderSizePixel = 0, ZIndex = 2}, rowFrame)
+        end
+    end
+    
+    local function AddToggle(parentCard, labelText, configKey, callback, layoutOrder)
+        local frame = create("Frame", {Size = UDim2.new(1, 0, 0, 38), BackgroundTransparency = 1, LayoutOrder = layoutOrder}, parentCard)
+        addRowDivider(frame)
+        
+        create("TextLabel", {Size = UDim2.new(0.7, 0, 1, 0), Position = UDim2.new(0, 10, 0, 0), BackgroundTransparency = 1, Text = labelText, TextColor3 = Color3.fromRGB(255, 255, 255), Font = Enum.Font.GothamMedium, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left}, frame)
+        local switch = create("TextButton", {Size = UDim2.new(0, 34, 0, 16), Position = UDim2.new(1, -44, 0.5, -8), BackgroundColor3 = Color3.fromRGB(60, 60, 60), Text = ""}, frame)
+        create("UICorner", {CornerRadius = UDim.new(1, 0)}, switch)
+        create("UIStroke", {Color = Color3.fromRGB(80, 80, 80), Thickness = 1}, switch)
+        
+        local knob = create("Frame", {Size = UDim2.new(0, 10, 0, 10), Position = UDim2.new(0, 3, 0.5, -5), BackgroundColor3 = Color3.fromRGB(255, 255, 255), BorderSizePixel = 0}, switch)
+        create("UICorner", {CornerRadius = UDim.new(1, 0)}, knob)
+        
+        local function updateToggleState(state)
+            Config[configKey] = state
+            local targetPos = state and UDim2.new(1, -13, 0.5, -5) or UDim2.new(0, 3, 0.5, -5)
+            local targetBg = state and Color3.fromRGB(100, 100, 255) or Color3.fromRGB(60, 60, 60)
+            local knobBg = state and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(220, 220, 220)
+            
+            TweenService:Create(knob, TweenInfo.new(0.2, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Position = targetPos, BackgroundColor3 = knobBg}):Play()
+            TweenService:Create(switch, TweenInfo.new(0.2, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {BackgroundColor3 = targetBg}):Play()
+            if callback then callback(state) end
+            SaveConfig()
+        end
+        
+        switch.MouseButton1Click:Connect(function() playClickSound() updateToggleState(not Config[configKey]) end)
+        frame.MouseEnter:Connect(function() TweenService:Create(frame, TweenInfo.new(0.15), {BackgroundTransparency = 0.96}):Play() end)
+        frame.MouseLeave:Connect(function() TweenService:Create(frame, TweenInfo.new(0.15), {BackgroundTransparency = 1}):Play() end)
+        
+        updateToggleState(Config[configKey])
+        return frame, updateToggleState
+    end
+    
+    -- ============================================================
+    --  SLIDER FUNCTION (MOBILE TOUCH SUPPORT)
+    -- ============================================================
+    local function AddSlider(parentCard, labelText, min, max, default, configKey, callback)
+        local frame = create("Frame", {Size = UDim2.new(1, 0, 0, 52), BackgroundTransparency = 1}, parentCard)
+        addRowDivider(frame)
+        
+        create("TextLabel", {Size = UDim2.new(0.6, 0, 0, 20), Position = UDim2.new(0, 10, 0, 6), BackgroundTransparency = 1, Text = labelText, TextColor3 = Color3.fromRGB(255, 255, 255), Font = Enum.Font.GothamMedium, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left}, frame)
+        local valLabel = create("TextLabel", {Size = UDim2.new(0, 50, 0, 20), Position = UDim2.new(1, -60, 0, 6), BackgroundTransparency = 1, Text = tostring(default), TextColor3 = Color3.fromRGB(255, 255, 255), Font = Enum.Font.GothamBold, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Right}, frame)
+        
+        local slideBar = create("TextButton", {Size = UDim2.new(1, -20, 0, 4), Position = UDim2.new(0, 10, 0, 34), BackgroundColor3 = Color3.fromRGB(60, 60, 60), Text = "", AutoButtonColor = false}, frame)
+        create("UICorner", {CornerRadius = UDim.new(1, 0)}, slideBar)
+        
+        local fill = create("Frame", {Size = UDim2.new(0, 0, 1, 0), BackgroundColor3 = Color3.fromRGB(100, 100, 255), BorderSizePixel = 0}, slideBar)
+        create("UICorner", {CornerRadius = UDim.new(1, 0)}, fill)
+        
+        local knob = create("Frame", {Size = UDim2.new(0, 8, 0, 8), Position = UDim2.new(0, 0, 0.5, -4), BackgroundColor3 = Color3.fromRGB(255, 255, 255)}, slideBar)
+        create("UICorner", {CornerRadius = UDim.new(1, 0)}, knob)
+        
+        local function setValue(val)
+            val = math.clamp(val, min, max)
+            Config[configKey] = val
+            valLabel.Text = (val == math.floor(val)) and tostring(math.floor(val)) or string.format("%.2f", val)
+            local divisor = (max - min)
+            local percent = divisor > 0 and (val - min) / divisor or 0
+            fill.Size = UDim2.new(percent, 0, 1, 0)
+            knob.Position = UDim2.new(percent, -4, 0.5, -4)
+            if callback then callback(val) end
+            SaveConfig()
+        end
+        
+        local function updateFromInput(input)
+            local absoluteX = slideBar.AbsolutePosition.X
+            local width = slideBar.AbsoluteSize.X
+            local inputX = input.Position.X
+            local divisor = width > 0 and width or 1
+            local percentage = math.clamp((inputX - absoluteX) / divisor, 0, 1)
+            setValue(min + (percentage * (max - min)))
+        end
+        
+        local dragging = false
+        slideBar.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                dragging = true
+                updateFromInput(input)
+            end
+        end)
+        
+        UserInputService.InputChanged:Connect(function(input)
+            if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+                updateFromInput(input)
+            end
+        end)
+        
+        UserInputService.InputEnded:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                dragging = false
+            end
+        end)
+        
+        frame.MouseEnter:Connect(function() TweenService:Create(frame, TweenInfo.new(0.15), {BackgroundTransparency = 0.96}):Play() end)
+        frame.MouseLeave:Connect(function() TweenService:Create(frame, TweenInfo.new(0.15), {BackgroundTransparency = 1}):Play() end)
+        
+        setValue(default)
+        return frame
+    end
+
+    local function AddKeybind(parentCard, labelText, defaultKey, configKey, callback)
+        local frame = create("Frame", {Size = UDim2.new(1, 0, 0, 38), BackgroundTransparency = 1}, parentCard)
+        addRowDivider(frame)
+        
+        create("TextLabel", {Size = UDim2.new(0.6, 0, 1, 0), Position = UDim2.new(0, 10, 0, 0), BackgroundTransparency = 1, Text = labelText, TextColor3 = Color3.fromRGB(255, 255, 255), Font = Enum.Font.GothamMedium, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left}, frame)
+        local bindBtn = create("TextButton", {Size = UDim2.new(0, 80, 0, 20), Position = UDim2.new(1, -90, 0.5, -10), BackgroundColor3 = Color3.fromRGB(25, 25, 30), Text = (defaultKey == Enum.UserInputType.MouseButton2 and "RightClick" or defaultKey.Name), TextColor3 = Color3.fromRGB(255, 255, 255), Font = Enum.Font.Code, TextSize = 10}, frame)
+        create("UICorner", {CornerRadius = UDim.new(0, 4)}, bindBtn)
+        local bindStroke = create("UIStroke", {Color = Color3.fromRGB(80, 80, 80), Thickness = 1}, bindBtn)
+        
+        local waitingForKey = false
+        Config[configKey] = defaultKey
+        
+        bindBtn.MouseButton1Click:Connect(function()
+            playClickSound()
+            waitingForKey = true
+            bindBtn.Text = "[ PRESS ]"
+            bindBtn.TextColor3 = Color3.fromRGB(200, 200, 200)
+            TweenService:Create(bindStroke, TweenInfo.new(0.15), {Color = Color3.fromRGB(255, 255, 255)}):Play()
+        end)
+        
+        local connection = UserInputService.InputBegan:Connect(function(input)
+            if waitingForKey then
+                if input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode ~= Enum.KeyCode.Escape then
+                    waitingForKey = false
+                    Config[configKey] = input.KeyCode
+                    bindBtn.Text = input.KeyCode.Name
+                    bindBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+                    TweenService:Create(bindStroke, TweenInfo.new(0.15), {Color = Color3.fromRGB(80, 80, 80)}):Play()
+                    if callback then callback(input.KeyCode) end
+                    SaveConfig()
+                elseif input.UserInputType == Enum.UserInputType.MouseButton2 then
+                    waitingForKey = false
+                    Config[configKey] = Enum.UserInputType.MouseButton2
+                    bindBtn.Text = "RightClick"
+                    bindBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+                    TweenService:Create(bindStroke, TweenInfo.new(0.15), {Color = Color3.fromRGB(80, 80, 80)}):Play()
+                    if callback then callback(Enum.UserInputType.MouseButton2) end
+                    SaveConfig()
+                end
+            end
+        end)
+        table.insert(connections, connection)
+        
+        frame.MouseEnter:Connect(function() TweenService:Create(frame, TweenInfo.new(0.15), {BackgroundTransparency = 0.96}):Play() end)
+        frame.MouseLeave:Connect(function() TweenService:Create(frame, TweenInfo.new(0.15), {BackgroundTransparency = 1}):Play() end)
+        return frame
+    end
+
+    -- Theme Selector with warp animation
+    local function CreateThemeButton(parentCard, labelText, default)
+        local frame = create("Frame", {Size = UDim2.new(1, 0, 0, 38), BackgroundTransparency = 1}, parentCard)
+        addRowDivider(frame)
+        
+        create("TextLabel", {Size = UDim2.new(0.6, 0, 1, 0), Position = UDim2.new(0, 10, 0, 0), BackgroundTransparency = 1, Text = labelText, TextColor3 = Color3.fromRGB(255, 255, 255), Font = Enum.Font.GothamMedium, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left}, frame)
+        
+        local themeBtn = create("TextButton", {Size = UDim2.new(0, 110, 0, 20), Position = UDim2.new(1, -120, 0.5, -10), BackgroundColor3 = Color3.fromRGB(25, 25, 30), Text = default, TextColor3 = Color3.fromRGB(255, 255, 255), Font = Enum.Font.GothamBold, TextSize = 11}, frame)
+        create("UICorner", {CornerRadius = UDim.new(0, 4)}, themeBtn)
+        create("UIStroke", {Color = Color3.fromRGB(40, 40, 40), Thickness = 0.4, ApplyStrokeMode = Enum.ApplyStrokeMode.Border}, themeBtn)
+        
+        local modalOverlay = nil
+        local modalCanvas = nil
+        local isClosing = false
+
+        local function reverseWarpAndDestroy()
+            if isClosing or not modalCanvas then return end
+            isClosing = true
+            local btnAbsPos = themeBtn.AbsolutePosition
+            local mainAbsPos = MainFrame.AbsolutePosition
+            local btnAbsSize = themeBtn.AbsoluteSize
+            local startPos = UDim2.new(0, btnAbsPos.X - mainAbsPos.X, 0, btnAbsPos.Y - mainAbsPos.Y)
+            local startSize = UDim2.new(0, btnAbsSize.X, 0, btnAbsSize.Y)
+            local tweenInfo = TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.In)
+            local goals = { Size = startSize, Position = startPos, GroupTransparency = 1 }
+            local tween = TweenService:Create(modalCanvas, tweenInfo, goals)
+            tween:Play()
+            tween.Completed:Connect(function()
+                if modalOverlay then
+                    modalOverlay:Destroy()
+                    modalOverlay = nil
+                    modalCanvas = nil
+                    isClosing = false
+                end
+            end)
+        end
+
+        local function openThemeSelector()
+            if modalOverlay then return end
+            isClosing = false
+            local btnAbsPos = themeBtn.AbsolutePosition
+            local mainAbsPos = MainFrame.AbsolutePosition
+            local btnAbsSize = themeBtn.AbsoluteSize
+            local startPos = UDim2.new(0, btnAbsPos.X - mainAbsPos.X, 0, btnAbsPos.Y - mainAbsPos.Y)
+            local startSize = UDim2.new(0, btnAbsSize.X, 0, btnAbsSize.Y)
+            
+            modalOverlay = create("Frame", {Size = UDim2.new(1, 0, 1, 0), Position = UDim2.new(0, 0, 0, 0), BackgroundColor3 = Color3.fromRGB(0, 0, 0), BackgroundTransparency = 0.6, ZIndex = 10}, MainFrame)
+            modalOverlay.InputBegan:Connect(function(input)
+                if input.UserInputType == Enum.UserInputType.MouseButton1 then
+                    reverseWarpAndDestroy()
+                end
+            end)
+            
+            modalCanvas = create("CanvasGroup", {
+                Size = startSize,
+                Position = startPos,
+                BackgroundColor3 = Color3.fromRGB(25, 25, 30),
+                BackgroundTransparency = 0,
+                BorderSizePixel = 0,
+                GroupTransparency = 1,
+                ZIndex = 11,
+                Active = true
+            }, modalOverlay)
+            create("UICorner", {CornerRadius = UDim.new(0, 8)}, modalCanvas)
+            local canvasGradient = Instance.new("UIGradient")
+            canvasGradient.Parent = modalCanvas
+            ApplyTheme(modalCanvas, Config.Theme)
+            
+            local contentFrame = create("Frame", {Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, ZIndex = 11}, modalCanvas)
+            
+            create("TextLabel", {Size = UDim2.new(1, 0, 0, 30), Position = UDim2.new(0, 0, 0, 5), BackgroundTransparency = 1, Text = "Select Theme", TextColor3 = Color3.fromRGB(255, 255, 255), Font = Enum.Font.GothamBold, TextSize = 14}, contentFrame)
+            
+            local themeList = create("Frame", {Size = UDim2.new(1, -20, 1, -50), Position = UDim2.new(0, 10, 0, 35), BackgroundTransparency = 1}, contentFrame)
+            create("UIListLayout", {SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 10)}, themeList)
+            
+            local themes = {"Purple", "Blue", "Holographic", "Cotton Candy"}
+            for _, t in ipairs(themes) do
+                local btn = create("TextButton", {
+                    Size = UDim2.new(1, 0, 0, 32),
+                    BackgroundColor3 = Color3.fromRGB(25, 25, 30),
+                    Text = t,
+                    TextColor3 = Color3.fromRGB(255, 255, 255),
+                    Font = Enum.Font.GothamSemibold,
+                    TextSize = 12,
+                    LayoutOrder = 0
+                }, themeList)
+                create("UICorner", {CornerRadius = UDim.new(0, 4)}, btn)
+                create("UIStroke", {Color = Color3.fromRGB(40, 40, 40), Thickness = 0.4, ApplyStrokeMode = Enum.ApplyStrokeMode.Border}, btn)
+                btn.MouseButton1Click:Connect(function()
+                    playClickSound()
+                    themeBtn.Text = t
+                    Config.Theme = t
+                    ApplyTheme(ScreenGui, t)
+                    reverseWarpAndDestroy()
+                    SaveConfig()
+                end)
+            end
+            
+            local modalCloseBtn = create("TextButton", {Size = UDim2.new(0, 20, 0, 20), Position = UDim2.new(1, -25, 0, 5), BackgroundColor3 = Color3.fromRGB(25, 25, 30), Text = "X", TextColor3 = Color3.fromRGB(255, 255, 255), Font = Enum.Font.GothamBold, TextSize = 10}, contentFrame)
+            create("UICorner", {CornerRadius = UDim.new(0, 4)}, modalCloseBtn)
+            modalCloseBtn.MouseButton1Click:Connect(function() 
+                playClickSound()
+                reverseWarpAndDestroy()
+            end)
+            
+            local itemHeight = 32
+            local itemPadding = 10
+            local totalItemsHeight = #themes * (itemHeight + itemPadding) - itemPadding
+            local targetSize = UDim2.new(0, 200, 0, totalItemsHeight + 70)
+            local targetPos = UDim2.new(0.5, -100, 0.5, -(totalItemsHeight + 70)/2)
+            local tweenInfo = TweenInfo.new(0.35, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+            local goals = { Size = targetSize, Position = targetPos, GroupTransparency = 0 }
+            TweenService:Create(modalCanvas, tweenInfo, goals):Play()
+        end
+        
+        themeBtn.MouseButton1Click:Connect(function()
+            playClickSound()
+            openThemeSelector()
+        end)
+        
+        frame.MouseEnter:Connect(function() TweenService:Create(frame, TweenInfo.new(0.15), {BackgroundTransparency = 0.96}):Play() end)
+        frame.MouseLeave:Connect(function() TweenService:Create(frame, TweenInfo.new(0.15), {BackgroundTransparency = 1}):Play() end)
+        
+        return frame
+    end
+
+    -- Content (farming, movement, settings)
+    local farmSec = AddSection(farmPage, "Auto Farming")
+    local remote = game:GetService("ReplicatedStorage"):WaitForChild("Packages"):WaitForChild("_Index"):WaitForChild("sleitnick_knit@1.7.0"):WaitForChild("knit"):WaitForChild("Services"):WaitForChild("SeasonService"):WaitForChild("RF"):WaitForChild("RequestRankedReward")
+
+    -- ============================================================
+    --  AUTO FARM TOGGLES – NO LIMIT POPUPS, RUNS CONTINUOUSLY
+    -- ============================================================
+    -- Auto Lucky Spins
+    local autoSpinsRunning = false
+    AddToggle(farmSec, "Auto Lucky Spins", "AutoSpins", function(v)
+        autoSpinsRunning = v
+        if v then
+            task.spawn(function()
+                while autoSpinsRunning do
+                    pcall(function() remote:InvokeServer(1) end)
+                    task.wait(0.5)
+                end
+            end)
+        end
+    end, 1)
+
+    -- Auto Yen Farm
+    local autoYenRunning = false
+    AddToggle(farmSec, "Auto Yen Farm", "AutoYen", function(v)
+        autoYenRunning = v
+        if v then
+            task.spawn(function()
+                while autoYenRunning do
+                    pcall(function() remote:InvokeServer(2) end)
+                    task.wait(0.6)
+                end
+            end)
+        end
+    end, 2)
+
+    -- Auto Ability Spins
+    local autoAbilityRunning = false
+    AddToggle(farmSec, "Auto Ability Spins", "AutoAbilitySpins", function(v)
+        autoAbilityRunning = v
+        if v then
+            task.spawn(function()
+                while autoAbilityRunning do
+                    pcall(function() remote:InvokeServer(4) end)
+                    task.wait(0.5)
+                end
+            end)
+        end
+    end, 3)
+
+    -- ============================================================
+    --  MOVEMENT & SETTINGS (unchanged)
+    -- ============================================================
+    local moveSec = AddSection(movementPage, "Movement Options")
+    local function createOrUpdateHitboxes(scale)
+        for _, model in ipairs(workspace:GetChildren()) do
+            if model:IsA("Model") and model.Name:match("^CLIENT_BALL_%d+$") then
+                local ball = model:FindFirstChild("Ball.001")
+                if not ball then
+                    local ref = nil
+                    for _, p in ipairs(model:GetDescendants()) do if p:IsA("BasePart") then ref = p break end end
+                    if ref then
+                        ball = Instance.new("Part", model)
+                        ball.Name = "Ball.001"; ball.Shape = Enum.PartType.Ball; ball.Size = Vector3.new(2, 2, 2) * scale
+                        ball.CFrame = ref.CFrame; ball.Anchored = true; ball.CanCollide = false
+                        ball.Transparency = Config.HitboxRingVisible and 0.7 or 1
+                        ball.Material = Enum.Material.ForceField; ball.Color = Color3.fromRGB(255, 255, 255)
+                    end
+                else
+                    ball.Size = Vector3.new(2, 2, 2) * scale
+                    ball.Transparency = Config.HitboxRingVisible and 0.7 or 1
+                end
+            end
+        end
+    end
+
+    local hitboxSliderFrame
+    AddToggle(moveSec, "Enable Hitbox Expander", "HitboxEnabled", function(v)
+        if hitboxSliderFrame then hitboxSliderFrame.Visible = v end
+    end)
+    hitboxSliderFrame = AddSlider(moveSec, "Hitbox Scale Extender", 0, 25, Config.HitboxScale, "HitboxScale")
+    hitboxSliderFrame.Visible = Config.HitboxEnabled
+    
+    AddToggle(moveSec, "Directional Jump", "DirectionalJump")
+    
+    local airMoveSliderFrame
+    AddToggle(moveSec, "Enable Air Movement", "AirMoveEnabled", function(v)
+        if airMoveSliderFrame then airMoveSliderFrame.Visible = v end
+    end)
+    airMoveSliderFrame = AddSlider(moveSec, "Air Movement Speed", 15, 150, Config.AirMoveSpeed, "AirMoveSpeed")
+    airMoveSliderFrame.Visible = Config.AirMoveEnabled
+    
+    local desyncSliderFrame
+    local desyncFrame, desyncUpdate = AddToggle(moveSec, "Desync", "DesyncEnabled", function(v)
+        if v then
+            pcall(function() setfflag("PhysicsSenderMaxBandwidthBps", "40000") end)
+        else
+            pcall(function() setfflag("PhysicsSenderMaxBandwidthBps", "1048576") end)
+        end
+        if desyncSliderFrame then
+            desyncSliderFrame.Visible = v
+        end
+    end)
+    desyncSliderFrame = AddSlider(moveSec, "Desync Duration (s)", 0, 5, Config.DesyncDuration, "DesyncDuration")
+    desyncSliderFrame.Visible = Config.DesyncEnabled
+
+    local setSec = AddSection(settingsPage, "Performance & Display")
+    
+    local function applyFPS()
+        if setfpscap then
+            if Config.FPSBooster then
+                setfpscap(Config.FPSLimit)
+            else
+                setfpscap(60)
+            end
+        end
+    end
+
+    local fpsSliderFrame
+    AddToggle(setSec, "Enable FPS Unlocker", "FPSBooster", function(v)
+        applyFPS()
+        if fpsSliderFrame then fpsSliderFrame.Visible = v end
+    end)
+
+    fpsSliderFrame = AddSlider(setSec, "FPS Limit", 1, 999, Config.FPSLimit, "FPSLimit", function(v)
+        applyFPS()
+    end)
+    fpsSliderFrame.Visible = Config.FPSBooster
+
+    local dirLineSliderFrame
+    AddToggle(setSec, "Direction Lines", "DirectionLines", function(v)
+        if not v then
+            for _, player in ipairs(Players:GetPlayers()) do
+                if player.Character and player.Character:FindFirstChild("OpponentFacingRay") then
+                    player.Character.OpponentFacingRay:Destroy()
+                end
+            end
+        end
+        if dirLineSliderFrame then dirLineSliderFrame.Visible = v end
+    end)
+    
+    dirLineSliderFrame = AddSlider(setSec, "Line Thickness", 0.05, 1, Config.DirectionLineThickness, "DirectionLineThickness")
+    dirLineSliderFrame.Visible = Config.DirectionLines
+
+    local hitboxRingSec = AddSection(settingsPage, "Hitbox ESP")
+    local hitboxRingFrame = create("Frame", {Size = UDim2.new(1, 0, 0, 38), BackgroundTransparency = 1}, hitboxRingSec)
+    addRowDivider(hitboxRingFrame)
+
+    create("TextLabel", {
+        Size = UDim2.new(0.7, 0, 1, 0),
+        Position = UDim2.new(0, 10, 0, 0),
+        BackgroundTransparency = 1,
+        Text = "Show Hitbox Ring",
+        TextColor3 = Color3.fromRGB(255, 255, 255),
+        Font = Enum.Font.GothamMedium,
+        TextSize = 12,
+        TextXAlignment = Enum.TextXAlignment.Left
+    }, hitboxRingFrame)
+
+    local ringSwitch = create("TextButton", {
+        Size = UDim2.new(0, 34, 0, 16),
+        Position = UDim2.new(1, -44, 0.5, -8),
+        BackgroundColor3 = Color3.fromRGB(60, 60, 60),
+        Text = ""
+    }, hitboxRingFrame)
+    create("UICorner", {CornerRadius = UDim.new(1, 0)}, ringSwitch)
+    create("UIStroke", {Color = Color3.fromRGB(80, 80, 80), Thickness = 1}, ringSwitch)
+
+    local ringKnob = create("Frame", {
+        Size = UDim2.new(0, 10, 0, 10),
+        Position = UDim2.new(0, 3, 0.5, -5),
+        BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+        BorderSizePixel = 0
+    }, ringSwitch)
+    create("UICorner", {CornerRadius = UDim.new(1, 0)}, ringKnob)
+
+    local function updateRingToggle(state)
+        Config.HitboxRingVisible = state
+        local targetPos = state and UDim2.new(1, -13, 0.5, -5) or UDim2.new(0, 3, 0.5, -5)
+        local targetBg = state and Color3.fromRGB(100, 100, 255) or Color3.fromRGB(60, 60, 60)
+        local knobBg = state and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(220, 220, 220)
+        
+        TweenService:Create(ringKnob, TweenInfo.new(0.2, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Position = targetPos, BackgroundColor3 = knobBg}):Play()
+        TweenService:Create(ringSwitch, TweenInfo.new(0.2, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {BackgroundColor3 = targetBg}):Play()
+        SaveConfig()
+    end
+
+    ringSwitch.MouseButton1Click:Connect(function()
+        playClickSound()
+        updateRingToggle(not Config.HitboxRingVisible)
+    end)
+
+    hitboxRingFrame.MouseEnter:Connect(function()
+        TweenService:Create(hitboxRingFrame, TweenInfo.new(0.15), {BackgroundTransparency = 0.96}):Play()
+    end)
+    hitboxRingFrame.MouseLeave:Connect(function()
+        TweenService:Create(hitboxRingFrame, TweenInfo.new(0.15), {BackgroundTransparency = 1}):Play()
+    end)
+
+    updateRingToggle(Config.HitboxRingVisible)
+
+    local Terrain = Workspace:FindFirstChildOfClass("Terrain")
+    local BALL_GUESSES = {"Volleyball", "Ball", "Football", "MainBall", "GameBall", "VBall"}
+
+    local function processObject(obj)
+        local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+        local nameLower = string.lower(obj.Name)
+        
+        local isLookArrow = string.find(nameLower, "arrow") or string.find(nameLower, "ray") or string.find(nameLower, "look") or string.find(nameLower, "pointer")
+        if isLookArrow then
+            if obj:IsA("BasePart") then
+                obj.Material = Enum.Material.Neon; obj.Color = Color3.fromRGB(40, 255, 0); obj.Transparency = 0; obj.CastShadow = false; obj.CFrame = CFrame.new(obj.CFrame.X, 0.5, obj.CFrame.Z)
+                return
+            elseif obj:IsA("Beam") or obj:IsA("Trail") then
+                obj.Color = ColorSequence.new(Color3.fromRGB(0, 255, 0)); obj.Enabled = true
+                return
+            end
+        end
+        if obj:IsA("ParticleEmitter") or obj:IsA("Trail") or obj:IsA("Beam") or obj:IsA("Sparkles") or obj:IsA("Smoke") or obj:IsA("Fire") or obj:IsA("Texture") or obj:IsA("Decal") or obj:IsA("SurfaceAppearance") then
+            obj:Destroy(); return
+        end
+        if obj:IsA("Clouds") or obj:IsA("Sky") or obj:IsA("Atmosphere") or obj:IsA("SunRaysEffect") then return end 
+        local isGuiObject = obj:IsDescendantOf(game:GetService("CoreGui")) or (playerGui and obj:IsDescendantOf(playerGui)) 
+        if isGuiObject then return end
+
+        local parent = obj.Parent 
+        local isPlayerPart = parent and (parent:IsA("Model") and Players:GetPlayerFromCharacter(parent)) or (parent and parent.Parent and parent.Parent:IsA("Model") and Players:GetPlayerFromCharacter(parent.Parent))
+        
+        if isPlayerPart and (obj:IsA("Shirt") or obj:IsA("Pants") or obj:IsA("Clothing") or obj:IsA("CharacterMesh") or obj:IsA("BodyColors") or obj:IsA("Accessory")) then obj:Destroy(); return end
+        
+        if obj:IsA("BasePart") then 
+            obj.CastShadow = false
+            if obj.Transparency >= 0.9 or string.find(nameLower, "wall") or string.find(nameLower, "barrier") or string.find(nameLower, "clip") or string.find(nameLower, "invisible") then
+                obj.Transparency = 1; return
+            end
+            
+            local isBall = false
+            for _, ballName in ipairs(BALL_GUESSES) do
+                if obj.Name == ballName or string.find(nameLower, "ball") then isBall = true; break end
+            end
+            local isCritical = string.find(nameLower, "indicator") or string.find(nameLower, "net") or string.find(nameLower, "court") or string.find(nameLower, "line") 
+
+            if isPlayerPart then 
+                if not (string.find(nameLower, "arm") or string.find(nameLower, "hand")) then obj.Material = Enum.Material.Metal; obj.Color = Color3.fromRGB(15, 15, 15); obj.Reflectance = 0.3 end
+            elseif isBall then return 
+            elseif isCritical then obj.Material = Enum.Material.SmoothPlastic; obj.Color = Color3.fromRGB(48, 50, 52); obj.Reflectance = 0
+            else 
+                if string.find(nameLower, "tree") or string.find(nameLower, "palm") or string.find(nameLower, "leaf") or string.find(nameLower, "house") or string.find(nameLower, "building") or string.find(nameLower, "prop") or string.find(nameLower, "grass") then 
+                    obj.Transparency = 1; obj.CanCollide = false 
+                else 
+                    obj.Material = Enum.Material.SmoothPlastic; obj.Reflectance = 0; obj.Color = Color3.fromRGB(100, 100, 100) 
+                end 
+            end 
+        end
+    end
+
+    local function applyLightingSettings()
+        pcall(function() 
+            for _, effect in ipairs(Lighting:GetChildren()) do 
+                if effect:IsA("BloomEffect") or effect:IsA("BlurEffect") or effect:IsA("ColorCorrectionEffect") or effect:IsA("DepthOfFieldEffect") or effect:IsA("Atmosphere") or effect:IsA("Clouds") or effect:IsA("SunRaysEffect") then effect:Destroy() end 
+            end 
+            
+            if Lighting:FindFirstChildOfClass("Sky") then
+                Lighting:FindFirstChildOfClass("Sky"):Destroy()
+            end
+
+            local darkAtmosphere = Instance.new("Atmosphere", Lighting)
+            darkAtmosphere.Density = 1
+            darkAtmosphere.Color = Color3.fromRGB(25, 25, 25) 
+            darkAtmosphere.Decay = Color3.fromRGB(20, 20, 20)
+            darkAtmosphere.Glare = 0
+            darkAtmosphere.Haze = 0
+
+            if Terrain then Terrain.WaterWaterWaveSize = 0; Terrain.WaterWaveSpeed = 0; Terrain.WaterReflectance = 0; Terrain.WaterTransparency = 1; Terrain.Decoration = false end
+            Lighting.GlobalShadows = false; Lighting.ShadowSoftness = 0; 
+            Lighting.ClockTime = 0; 
+            Lighting.Brightness = 0
+            Lighting.Ambient = Color3.fromRGB(50, 50, 50) 
+            Lighting.OutdoorAmbient = Color3.fromRGB(25, 25, 25)   
+            Lighting.EnvironmentDiffuseScale = 0; Lighting.EnvironmentSpecularScale = 0; Lighting.FogEnd = 99999999
+            SoundService.AmbientReverb = Enum.ReverbType.NoReverb; SoundService.DistanceFactor = 0; SoundService.DopplerScale = 0
+            UserInputService.MouseDeltaSensitivity = 1
+        end)
+    end
+
+    AddToggle(setSec, "Potato Optimizer", "PotatoOptimizer", function(v)
+        if v then
+            getgenv().PotatoOptimizerLoaded = true
+            pcall(function() 
+                for i, obj in ipairs(Workspace:GetDescendants()) do 
+                    if i % 300 == 0 then task.wait() end 
+                    processObject(obj)
+                end 
+            end)
+            applyLightingSettings()
+            if not getgenv().PotatoOptimizerConnection then
+                getgenv().PotatoOptimizerConnection = Workspace.DescendantAdded:Connect(function(obj) task.skip(); pcall(processObject, obj) end)
+            end
+            task.spawn(function()
+                while getgenv().PotatoOptimizerLoaded do task.wait(5); applyLightingSettings() end
+            end)
+        else
+            getgenv().PotatoOptimizerLoaded = false
+            if getgenv().PotatoOptimizerConnection then
+                getgenv().PotatoOptimizerConnection:Disconnect()
+                getgenv().PotatoOptimizerConnection = nil
+            end
+        end
+    end)
+    
+    AddKeybind(setSec, "Toggle Menu Key", Enum.KeyCode.RightAlt, "MenuKey")
+
+    CreateThemeButton(setSec, "UI Theme", Config.Theme)
+
+    ApplyTheme(ScreenGui, Config.Theme)
+
+    -- Logic Connections
+    local jumpConnection = UserInputService.JumpRequest:Connect(function()
+        local humanoid, hrp = GetCharacterData()
+        if Config.DirectionalJump and humanoid and hrp then
+            task.defer(function()
+                task.wait(0.03)
+                local cameraLook = workspace.CurrentCamera.CFrame.LookVector
+                local flattenedLook = Vector3.new(cameraLook.X, 0, cameraLook.Z).Unit
+                if flattenedLook.Magnitude > 0 then 
+                    hrp.CFrame = CFrame.lookAt(hrp.Position, hrp.Position + flattenedLook)
+                    humanoid.AutoRotate = false 
+                end
+            end)
+        elseif humanoid then 
+            humanoid.AutoRotate = true 
+        end
+    end)
+    table.insert(connections, jumpConnection)
+
+    local renderConnection = RunService.RenderStepped:Connect(function()
+        if Config.HitboxEnabled then createOrUpdateHitboxes(Config.HitboxScale) end
+        
+        if Config.DirectionLines then
+            for _, player in ipairs(Players:GetPlayers()) do
+                if player ~= LocalPlayer and player.Character then
+                    local isOpponent = (LocalPlayer.Team == nil or player.Team ~= LocalPlayer.Team)
+                    
+                    local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+                        if isOpponent and hrp then
+                            local rayPart = player.Character:FindFirstChild("OpponentFacingRay")
+                            if not rayPart then
+                                rayPart = Instance.new("Part")
+                                rayPart.Name = "OpponentFacingRay"
+                                rayPart.Anchored = true
+                                rayPart.CanCollide = false
+                                rayPart.CastShadow = false
+                                rayPart.Material = Enum.Material.Neon
+                                rayPart.Color = Color3.fromRGB(253, 8, 8) 
+                                rayPart.Parent = player.Character
+                            end
+                            local thickness = Config.DirectionLineThickness or 0.15
+                            rayPart.Size = Vector3.new(thickness, thickness, 80) 
+                            rayPart.CFrame = hrp.CFrame * CFrame.new(0, 0, -40)
+                        else
+                        if player.Character:FindFirstChild("OpponentFacingRay") then
+                            player.Character.OpponentFacingRay:Destroy()
+                        end
+                    end
+                end
+            end
+        end
+
+        local humanoid, hrp = GetCharacterData()
+        if Config.AirMoveEnabled and humanoid and hrp then
+            local state = humanoid:GetState()
+            if state == Enum.HumanoidStateType.Freefall or state == Enum.HumanoidStateType.Jumping then
+                local cameraLook = workspace.CurrentCamera.CFrame.LookVector
+                local flattenedLook = Vector3.new(cameraLook.X, 0, cameraLook.Z).Unit
+                if flattenedLook.Magnitude > 0 then
+                    hrp.CFrame = CFrame.lookAt(hrp.Position, hrp.Position + flattenedLook)
+                end
+
+                local moveDir = humanoid.MoveDirection
+                if moveDir.Magnitude > 0 then 
+                    hrp.Velocity = Vector3.new(moveDir.X * Config.AirMoveSpeed, hrp.Velocity.Y, moveDir.Z * Config.AirMoveSpeed) 
+                end
+            end
+        end
+    end)
+    table.insert(connections, renderConnection)
+    
+    local keyBindConnection = UserInputService.InputBegan:Connect(function(input, gameProcessed)
+        if (input.KeyCode == Config.MenuKey and input.KeyCode ~= Enum.KeyCode.Unknown) or (input.UserInputType == Config.MenuKey) then
+            playClickSound()
+            if minimized and restoreFrame then
+                if restoreFrame.Visible then
+                    local fadeOut = TweenService:Create(restoreFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {GroupTransparency = 1})
+                    fadeOut:Play()
+                    fadeOut.Completed:Wait()
+                    restoreFrame.Visible = false
+                else
+                    restoreFrame.Visible = true
+                    TweenService:Create(restoreFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {GroupTransparency = 0}):Play()
+                end
+                return
+            end
+            if MainFrame.Visible then
+                local fadeOut = TweenService:Create(MainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {GroupTransparency = 1})
+                fadeOut:Play()
+                fadeOut.Completed:Wait()
+                MainFrame.Visible = false
+            else
+                MainFrame.Visible = true
+                TweenService:Create(MainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {GroupTransparency = 0}):Play()
+            end
+        end
+    end)
+    table.insert(connections, keyBindConnection)
+    
+    -- Desync Logic
+    local isAsyncRunning = false
+    local function ConnectCharacterDesync(NewCharacter)
+        local humanoid = NewCharacter:WaitForChild("Humanoid", 10)
+        if humanoid then
+            local jumpConn = humanoid.Jumping:Connect(function(isActive)
+                if Config.DesyncEnabled and isActive and not isAsyncRunning then
+                    isAsyncRunning = true
+                    pcall(function() setfflag("PhysicsSenderMaxBandwidthBps", "1") end)
+                    task.wait(Config.DesyncDuration or 0.1)
+                    pcall(function() setfflag("PhysicsSenderMaxBandwidthBps", "999999") end)
+                    task.wait(0.05)
+                    isAsyncRunning = false
+                end
+            end)
+            table.insert(connections, jumpConn)
+        end
+    end
+
+    if LocalPlayer.Character then
+        task.spawn(function() pcall(ConnectCharacterDesync, LocalPlayer.Character) end)
+    end
+    local charAddedConn = LocalPlayer.CharacterAdded:Connect(function(char)
+        task.spawn(function() pcall(ConnectCharacterDesync, char) end)
+    end)
+    table.insert(connections, charAddedConn)
+    
+    triggerNotification("FISHY LOADED", Color3.fromRGB(255, 255, 255))
+end
+
+-- Load the hub directly
+LoadMainHub()
