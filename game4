@@ -622,11 +622,11 @@ local RNG = Random.new()
 local IsFixingGenerator = false
 
 function IsPlayersNear(Distance)
-    local char = lp.Character
+    local char = LP.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
     if hrp then
         for _, v in pairs(Players:GetPlayers()) do
-            if v ~= lp and v.Character and v.Character:FindFirstChild("HumanoidRootPart") and (v.Character.HumanoidRootPart.Position - hrp.Position).Magnitude < Distance then
+            if v ~= LP and v.Character and v.Character:FindFirstChild("HumanoidRootPart") and (v.Character.HumanoidRootPart.Position - hrp.Position).Magnitude < Distance then
                 return true
             end
         end
@@ -656,7 +656,7 @@ task.spawn(function()
     while true do
         task.wait(0.1)
         if autoGenEnabled then
-            local char = lp.Character
+            local char = LP.Character
             local hrp = char and char:FindFirstChild("HumanoidRootPart")
             local sm = char and char:FindFirstChild("SpeedMultipliers")
             local inGame = Workspace:FindFirstChild("Map") and Workspace.Map:FindFirstChild("Ingame")
@@ -680,13 +680,13 @@ task.spawn(function()
                             
                             if RemoteEvent and sm and sm:FindFirstChild("FixingGenerator") then
                                 while true do
-                                    if not IsFixingGenerator or not lp.Character or not sm or not sm:FindFirstChild("FixingGenerator") or not autoGenEnabled then
+                                    if not IsFixingGenerator or not LP.Character or not sm or not sm:FindFirstChild("FixingGenerator") or not autoGenEnabled then
                                         break
                                     end
                                     local IsNear = IsPlayersNear(32)
                                     local GenCD = (not IsNear and speedUpCooldown and genCooldown > 2 and 1.5) or genCooldown
                                     task.wait(RNG:NextNumber(GenCD - 0.1 * GenCD, GenCD + 0.1 * GenCD))
-                                    if not IsFixingGenerator or not lp.Character or not sm or not sm:FindFirstChild("FixingGenerator") or not autoGenEnabled then
+                                    if not IsFixingGenerator or not LP.Character or not sm or not sm:FindFirstChild("FixingGenerator") or not autoGenEnabled then
                                         break
                                     end
                                     RemoteEvent:FireServer()
@@ -881,7 +881,7 @@ ExtraGroup:AddToggle("AntiSlownessToggle", {
     Callback = function(v)
         antiSlownessEnabled = v
         if v then
-            local char = lp.Character
+            local char = LP.Character
             local sm = char and char:FindFirstChild("SpeedMultipliers")
             if sm then
                 for _, child in pairs(sm:GetChildren()) do
@@ -893,7 +893,7 @@ ExtraGroup:AddToggle("AntiSlownessToggle", {
 })
 
 function IsHitboxNotNear(HitboxPart,Position)
-    if HitboxPart and Position and lp.Character and lp.Character:FindFirstChild("HumanoidRootPart") then
+    if HitboxPart and Position and LP.Character and LP.Character:FindFirstChild("HumanoidRootPart") then
         local IsHitboxNotNearParams = OverlapParams.new()
         IsHitboxNotNearParams.FilterType = Enum.RaycastFilterType.Include
         IsHitboxNotNearParams.MaxParts = 1
@@ -906,7 +906,7 @@ function IsHitboxNotNear(HitboxPart,Position)
 end
 
 function VelocityToPosition(target)
-    local char = lp.Character
+    local char = LP.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
     local TimeLimit = workspace.DistributedGameTime + 7
@@ -938,7 +938,7 @@ function GoUnder(Value)
     local Offset = 22
     if Value and not IsUnderground then
         IsUnderground = false
-        local char = lp.Character
+        local char = LP.Character
         local hrp = char and char:FindFirstChild("HumanoidRootPart")
         local head = char and char:FindFirstChild("Head")
         local hum = char and char:FindFirstChildOfClass("Humanoid")
@@ -991,7 +991,7 @@ ExtraGroup:AddToggle("InvincibleToggle", {
     end
 })
 
-lp.CharacterAdded:Connect(function(char)
+LP.CharacterAdded:Connect(function(char)
     local sm = char:WaitForChild("SpeedMultipliers", 5)
     if sm then
         sm.ChildAdded:Connect(function(child)
@@ -1005,8 +1005,8 @@ lp.CharacterAdded:Connect(function(char)
         end)
     end
 end)
-if lp.Character then
-    local sm = lp.Character:FindFirstChild("SpeedMultipliers")
+if LP.Character then
+    local sm = LP.Character:FindFirstChild("SpeedMultipliers")
     if sm then
         sm.ChildAdded:Connect(function(child)
             task.wait()
@@ -1220,7 +1220,7 @@ local settings = { distance = 100, smoothness = 20, duration = 50, targetPath = 
 pcall(function() generalGroup:AddSlider("GAA_Distance", { Text = "Aim Distance", Default = settings.distance, Min = 10, Max = 500, Rounding = 1, Callback = function(v) settings.distance = v end }) end)
 pcall(function() generalGroup:AddSlider("GAA_Smoothness", { Text = "Camera Smoothness", Default = settings.smoothness, Min = 0, Max = 100, Rounding = 1, Callback = function(v) settings.smoothness = v end }) end)
 pcall(function() generalGroup:AddSlider("GAA_Duration", { Text = "Lock Duration", Default = settings.duration, Min = 1, Max = 200, Rounding = 1, Callback = function(v) settings.duration = v end }) end)
-pcall(function() generalGroup:AddTextbox("GAA_TargetPath", { Text = "Target Path (leave empty for auto)", Default = "", Placeholder = "e.g. workspace.Players", Callback = function(v) settings.targetPath = (v ~= "" and v) or "auto" end }) end)
+pcall(function() generalGroup:AddInput("GAA_TargetPath", { Text = "Target Path (leave empty for auto)", Default = "", Placeholder = "e.g. workspace.Players", Callback = function(v) settings.targetPath = (v ~= "" and v) or "auto" end }) end)
 pcall(function() generalGroup:AddToggle("SilentAimToggle", { Text = "Silent Aim (Killer)", Default = false, Callback = function(v) toggleModule("SilentAim", v) end }) end)
 pcall(function() generalGroup:AddToggle("SoundTriggerToggle", { Text = "Sound Trigger Aim", Default = false, Callback = function(v) toggleModule("SoundTrigger", v) end }) end)
 pcall(function() survivorGroup:AddToggle("Onex4Toggle", { Text = "1x4 Aim", Default = false, Callback = function(v) toggleModule("1x4", v) end }) end)
@@ -2810,8 +2810,8 @@ Library:OnUnload(function() print("Unloaded!") end)
 
 Library:AddDraggableButton("Open/Close", function()
     Library:Toggle()
-end, false, 94651747085280, "Left")
+end, false, "rbxassetid://94651747085280", "Left")
 
 Library:OnUnload(function()
     print("[Fishy x Abyss] Unloaded")
-end) 
+end)
