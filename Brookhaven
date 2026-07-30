@@ -1,1 +1,1095 @@
+local Players = game:GetService("Players")
+local LP = Players.LocalPlayer
 
+local LocalPlayer = Players.LocalPlayer or Players.PlayerAdded:Wait() 
+
+local MarketplaceService = game:GetService("MarketplaceService")
+local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+local UserInputService = game:GetService("UserInputService")
+local Lighting = game:GetService("Lighting")
+
+local repo = "https://raw.githubusercontent.com/deividcomsono/Obsidian/main/"
+local Library = loadstring(game:HttpGet(repo .. "Library.lua"))()
+local ThemeManager = loadstring(game:HttpGet(repo .. "addons/ThemeManager.lua"))()
+local SaveManager = loadstring(game:HttpGet(repo .. "addons/SaveManager.lua"))()
+local Options = Library.Options
+local Toggles = Library.Toggles
+
+Library.ForceCheckbox = false
+Library.ShowToggleFrameInKeybinds = true
+
+local Window = Library:CreateWindow({
+    Title = "Fishy",
+    Footer = "Brookhaven RP",
+    NotifySide = "Right",
+    ShowCustomCursor = false,
+})
+
+local Tabs = {
+    ["Player"] = Window:AddTab("Player", "user"),
+    ["Misc"] = Window:AddTab("Misc", "component"),
+    ["UI Settings"] = Window:AddTab("UI Settings", "settings"),
+}
+
+-- Player Tab
+local MovementGroup = Tabs["Player"]:AddLeftGroupbox("Movement", "move")
+local UtilityGroup = Tabs["Player"]:AddLeftGroupbox("Utility", "zap")
+local ESPGroup = Tabs["Player"]:AddRightGroupbox("ESP", "eye")
+
+-- Fly Logic
+local flightEnabled = false
+local flightSpeed = 50
+
+local function stopFlight()
+    flightEnabled = false
+    local char = LP.Character
+    if char then
+        local humanoid = char:FindFirstChildOfClass("Humanoid")
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if humanoid then humanoid.PlatformStand = false end
+        if hrp then
+            local bv = hrp:FindFirstChild("FlyVelocity")
+            local bg = hrp:FindFirstChild("FlyGyro")
+            if bv then bv:Destroy() end
+            if bg then bg:Destroy() end
+        end
+    end
+end
+
+local function startFlight()
+    local char = LP.Character
+    if not char then return end
+    local humanoid = char:FindFirstChildOfClass("Humanoid")
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not humanoid or not hrp then return end
+    
+    stopFlight()
+    flightEnabled = true
+    
+    humanoid.PlatformStand = true
+    
+    local bg = Instance.new("BodyGyro")
+    bg.Name = "FlyGyro"
+    bg.maxTorque = Vector3.new(9e9, 9e9, 9e9)
+    bg.cframe = hrp.CFrame
+    bg.Parent = hrp
+    
+    local bv = Instance.new("BodyVelocity")
+    bv.Name = "FlyVelocity"
+    bv.maxForce = Vector3.new(9e9, 9e9, 9e9)
+    bv.velocity = Vector3.new(0, 0, 0)
+    bv.Parent = hrp
+    
+    local camera = Workspace.CurrentCamera
+    
+    task.spawn(function()
+        while flightEnabled and hrp and bv and bg do
+            local movement = Vector3.new(0, 0, 0)
+            
+            if UserInputService:IsKeyDown(Enum.KeyCode.W) then movement = movement + camera.CFrame.LookVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.S) then movement = movement - camera.CFrame.LookVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.A) then movement = movement - camera.CFrame.RightVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.D) then movement = movement + camera.CFrame.RightVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.Space) then movement = movement + Vector3.new(0, 1, 0) end
+            if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) or UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then movement = movement - Vector3.new(0, 1, 0) end
+            
+            if humanoid.MoveDirection.Magnitude > 0 then
+                local joystickDir = humanoid.MoveDirection
+                local lookVector = camera.CFrame.LookVector
+                movement = lookVector * (joystickDir.Magnitude)
+            end
+            
+            if movement.Magnitude > 0 then
+                bv.velocity = movement.Unit * flightSpeed
+            else
+                bv.velocity = Vector3.new(0, 0, 0)
+            end
+            
+            bg.cframe = camera.CFrame
+            RunService.RenderStepped:Wait()
+        end
+    end)
+end
+
+MovementGroup:AddToggle("FlyToggle", { Text = "Enable Fly", Default = false, Callback = function(v) 
+    if v then startFlight() else stopFlight() end
+end })
+MovementGroup:AddSlider("FlySpeed", { Text = "Fly Speed", Default = 50, Min = 1, Max = 1000, Rounding = 0, Callback = function(v) 
+    flightSpeed = v
+end })
+
+LP.CharacterAdded:Connect(function()
+    task.wait(0.5)
+    if flightEnabled then startFlight() end
+end)
+
+-- Float Logic
+local floatEnabled = false
+
+local function stopFloat()
+    floatEnabled = false
+    local char = LP.Character
+    if char then
+        local humanoid = char:FindFirstChildOfClass("Humanoid")
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if humanoid then humanoid.PlatformStand = false end
+        if hrp then
+            local bv = hrp:FindFirstChild("FloatVelocity")
+            local bg = hrp:FindFirstChild("FloatGyro")
+            if bv then bv:Destroy() end
+            if bg then bg:Destroy() end
+        end
+    end
+end
+
+local function startFloat()
+    local char = LP.Character
+    if not char then return end
+    local humanoid = char:FindFirstChildOfClass("Humanoid")
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not humanoid or not hrp then return end
+    
+    stopFloat()
+    floatEnabled = true
+    
+    humanoid.PlatformStand = true
+    
+    local bg = Instance.new("BodyGyro")
+    bg.Name = "FloatGyro"
+    bg.maxTorque = Vector3.new(9e9, 9e9, 9e9)
+    bg.cframe = hrp.CFrame
+    bg.Parent = hrp
+    
+    local bv = Instance.new("BodyVelocity")
+    bv.Name = "FloatVelocity"
+    bv.maxForce = Vector3.new(9e9, 9e9, 9e9)
+    bv.velocity = Vector3.new(0, 0, 0)
+    bv.Parent = hrp
+    
+    local camera = Workspace.CurrentCamera
+    
+    task.spawn(function()
+        while floatEnabled and hrp and bv and bg do
+            local movement = Vector3.new(0, 0, 0)
+            
+            if UserInputService:IsKeyDown(Enum.KeyCode.W) then movement = movement + camera.CFrame.LookVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.S) then movement = movement - camera.CFrame.LookVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.A) then movement = movement - camera.CFrame.RightVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.D) then movement = movement + camera.CFrame.RightVector end
+            
+            -- Only horizontal movement, no vertical movement for Float except Y maintain
+            movement = Vector3.new(movement.X, 0, movement.Z)
+            
+            if humanoid.MoveDirection.Magnitude > 0 then
+                local joystickDir = humanoid.MoveDirection
+                local lookVector = camera.CFrame.LookVector
+                local joyMove = lookVector * (joystickDir.Magnitude)
+                movement = Vector3.new(joyMove.X, 0, joyMove.Z)
+            end
+            
+            local yVelocity = 0
+            if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+                yVelocity = 25
+            elseif UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) or UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then
+                yVelocity = -25
+            end
+            
+            if movement.Magnitude > 0 then
+                bv.velocity = (movement.Unit * flightSpeed) + Vector3.new(0, yVelocity, 0)
+            else
+                bv.velocity = Vector3.new(0, yVelocity, 0)
+            end
+            
+            -- Keep character upright
+            bg.cframe = CFrame.new(hrp.Position, hrp.Position + movement)
+            if movement.Magnitude == 0 then
+                bg.cframe = hrp.CFrame
+            end
+            
+            RunService.RenderStepped:Wait()
+        end
+    end)
+end
+
+MovementGroup:AddToggle("FloatToggle", { Text = "Enable Float", Default = false, Callback = function(v) 
+    if v then startFloat() else stopFloat() end
+end })
+
+-- WalkSpeed Logic
+local speedEnabled = false
+local walkSpeed = 16
+
+local function updateSpeed()
+    local char = LP.Character
+    if char and speedEnabled then
+        local humanoid = char:FindFirstChildOfClass("Humanoid")
+        if humanoid then
+            humanoid.WalkSpeed = walkSpeed
+        end
+    end
+end
+
+MovementGroup:AddToggle("SpeedToggle", { Text = "Enable Speed", Default = false, Callback = function(v) 
+    speedEnabled = v
+    if v then 
+        updateSpeed() 
+    else
+        local char = LP.Character
+        if char then
+            local humanoid = char:FindFirstChildOfClass("Humanoid")
+            if humanoid then humanoid.WalkSpeed = 16 end
+        end
+    end
+end })
+MovementGroup:AddSlider("SpeedValue", { Text = "Walk Speed", Default = 16, Min = 16, Max = 1000, Rounding = 0, Callback = function(v) 
+    walkSpeed = v
+    updateSpeed()
+end })
+
+RunService.RenderStepped:Connect(function()
+    if speedEnabled then updateSpeed() end
+end)
+
+-- Vehicle Speed Logic
+local vehicleSpeedEnabled = false
+local vehicleSpeedValue = 100
+local lastSeat = nil
+
+MovementGroup:AddToggle("VehicleSpeedToggle", { Text = "Enable Vehicle Speed", Default = false, Callback = function(v) 
+    vehicleSpeedEnabled = v
+end })
+MovementGroup:AddSlider("VehicleSpeedSlider", { Text = "Vehicle Speed", Default = 100, Min = 1, Max = 1000, Rounding = 0, Callback = function(v) 
+    vehicleSpeedValue = v
+end })
+
+RunService.RenderStepped:Connect(function()
+    if vehicleSpeedEnabled and LP.Character then
+        local humanoid = LP.Character:FindFirstChildOfClass("Humanoid")
+        if humanoid and humanoid.SeatPart and humanoid.SeatPart:IsA("VehicleSeat") then
+            local seat = humanoid.SeatPart
+            lastSeat = seat
+            seat.MaxSpeed = vehicleSpeedValue
+            seat.Torque = 9e9
+            
+            local raycastParams = RaycastParams.new()
+            raycastParams.FilterDescendantsInstances = {seat.Parent, LP.Character}
+            raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+            
+            local result = Workspace:Raycast(seat.Position, Vector3.new(0, -20, 0), raycastParams)
+            local yVel = 0
+            if result then
+                -- Target ~4.5 studs above ground (roughly 1 stud clearance for most cars)
+                local targetY = result.Position.Y + 4.5
+                yVel = (targetY - seat.Position.Y) * 10
+            end
+            
+            local flatLook = Vector3.new(seat.CFrame.LookVector.X, 0, seat.CFrame.LookVector.Z)
+            if flatLook.Magnitude > 0 then
+                flatLook = flatLook.Unit
+            end
+            
+            if seat.Throttle == 1 then
+                seat.AssemblyLinearVelocity = Vector3.new((flatLook * vehicleSpeedValue).X, yVel, (flatLook * vehicleSpeedValue).Z)
+            elseif seat.Throttle == -1 then
+                seat.AssemblyLinearVelocity = Vector3.new((flatLook * -vehicleSpeedValue).X, yVel, (flatLook * -vehicleSpeedValue).Z)
+            else
+                seat.AssemblyLinearVelocity = Vector3.new(seat.AssemblyLinearVelocity.X * 0.9, yVel, seat.AssemblyLinearVelocity.Z * 0.9)
+            end
+            
+            local bg = seat:FindFirstChild("VehicleFlyGyro")
+            if not bg then
+                bg = Instance.new("BodyGyro")
+                bg.Name = "VehicleFlyGyro"
+                bg.maxTorque = Vector3.new(9e9, 0, 9e9) -- Keeps car flat (Pitch & Roll), allows normal steering (Yaw)
+                bg.P = 3000
+                bg.D = 500
+                bg.Parent = seat
+            end
+            bg.cframe = CFrame.new(seat.Position)
+        else
+            if lastSeat then
+                local bg = lastSeat:FindFirstChild("VehicleFlyGyro")
+                if bg then bg:Destroy() end
+                lastSeat = nil
+            end
+        end
+    else
+        if lastSeat then
+            local bg = lastSeat:FindFirstChild("VehicleFlyGyro")
+            if bg then bg:Destroy() end
+            lastSeat = nil
+        end
+    end
+end)
+
+-- Bunny Hop Logic
+local bhopEnabled = false
+MovementGroup:AddToggle("BhopToggle", { Text = "Bunny Hop", Default = false, Callback = function(v) 
+    bhopEnabled = v
+end })
+
+UserInputService.JumpRequest:Connect(function()
+    if bhopEnabled and LP.Character then
+        local humanoid = LP.Character:FindFirstChildOfClass("Humanoid")
+        if humanoid then
+            humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+        end
+    end
+end)
+RunService.RenderStepped:Connect(function()
+    if bhopEnabled and UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+        if LP.Character then
+            local humanoid = LP.Character:FindFirstChildOfClass("Humanoid")
+            if humanoid and humanoid:GetState() ~= Enum.HumanoidStateType.Freefall and humanoid:GetState() ~= Enum.HumanoidStateType.Jumping then
+                humanoid.Jump = true
+            end
+        end
+    end
+end)
+
+-- Noclip Logic
+local noclipEnabled = false
+local noclipLoop = nil
+
+UtilityGroup:AddToggle("NoclipToggle", { Text = "Enable Noclip", Default = false, Callback = function(v) 
+    noclipEnabled = v
+    if v then
+        noclipLoop = RunService.Stepped:Connect(function()
+            if LP.Character then
+                for _, part in pairs(LP.Character:GetDescendants()) do
+                    if part:IsA("BasePart") then
+                        part.CanCollide = false
+                    end
+                end
+            end
+        end)
+    else
+        if noclipLoop then noclipLoop:Disconnect() end
+    end
+end })
+
+-- Invisible Logic
+local invisibleEnabled = false
+local originalTransparency = {}
+
+local function applyInvisible(char, v)
+    for _, part in pairs(char:GetDescendants()) do
+        if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+            if v then
+                if not originalTransparency[part] then
+                    originalTransparency[part] = part.Transparency
+                end
+                part.Transparency = 1
+            else
+                if originalTransparency[part] then
+                    part.Transparency = originalTransparency[part]
+                    originalTransparency[part] = nil
+                end
+            end
+        elseif part:IsA("Decal") then
+            if v then
+                if not originalTransparency[part] then
+                    originalTransparency[part] = part.Transparency
+                end
+                part.Transparency = 1
+            else
+                if originalTransparency[part] then
+                    part.Transparency = originalTransparency[part]
+                    originalTransparency[part] = nil
+                end
+            end
+        end
+    end
+end
+
+UtilityGroup:AddToggle("InvisibleToggle", { Text = "Enable Invisible", Default = false, Callback = function(v) 
+    invisibleEnabled = v
+    if LP.Character then
+        applyInvisible(LP.Character, v)
+    end
+end })
+
+LP.CharacterAdded:Connect(function(char)
+    task.wait(0.5)
+    if invisibleEnabled then
+        applyInvisible(char, true)
+    end
+end)
+
+-- Spectate Nearest Logic
+local spectateNearestEnabled = false
+local spectateLoop = nil
+
+local function getNearestPlayer()
+    local nearest = nil
+    local minDist = math.huge
+    local myChar = LP.Character
+    if not myChar or not myChar:FindFirstChild("HumanoidRootPart") then return nil end
+    local myPos = myChar.HumanoidRootPart.Position
+
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LP and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+            local dist = (p.Character.HumanoidRootPart.Position - myPos).Magnitude
+            if dist < minDist then
+                minDist = dist
+                nearest = p
+            end
+        end
+    end
+    return nearest
+end
+
+UtilityGroup:AddToggle("SpectateNearestToggle", { Text = "Spectate Nearest", Default = false, Callback = function(v) 
+    spectateNearestEnabled = v
+    local cam = Workspace.CurrentCamera
+    if v then
+        spectateLoop = RunService.RenderStepped:Connect(function()
+            local target = getNearestPlayer()
+            if target and target.Character and target.Character:FindFirstChild("Humanoid") then
+                cam.CameraSubject = target.Character.Humanoid
+            else
+                if LP.Character and LP.Character:FindFirstChild("Humanoid") then
+                    cam.CameraSubject = LP.Character.Humanoid
+                end
+            end
+        end)
+    else
+        if spectateLoop then spectateLoop:Disconnect(); spectateLoop = nil end
+        if LP.Character and LP.Character:FindFirstChild("Humanoid") then
+            cam.CameraSubject = LP.Character.Humanoid
+        end
+    end
+end })
+
+-- Player Teleport / Drag Logic
+local selectedPlayerName = nil
+
+local function getPlayerNames()
+    local names = {}
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LP then
+            table.insert(names, p.Name)
+        end
+    end
+    return names
+end
+
+local PlayerDropdown = UtilityGroup:AddDropdown("PlayerSelectDropdown", {
+    Values = getPlayerNames(),
+    Default = 1,
+    Multi = false,
+    Text = "Select Player",
+    Callback = function(Value)
+        selectedPlayerName = Value
+    end
+})
+
+Players.PlayerAdded:Connect(function()
+    task.wait(0.1)
+    PlayerDropdown:SetValues(getPlayerNames())
+end)
+Players.PlayerRemoving:Connect(function()
+    task.wait(0.1)
+    PlayerDropdown:SetValues(getPlayerNames())
+end)
+
+UtilityGroup:AddButton("Teleport to Selected", function()
+    if selectedPlayerName then
+        local targetPlayer = Players:FindFirstChild(selectedPlayerName)
+        if targetPlayer and targetPlayer.Character and targetPlayer.Character:FindFirstChild("HumanoidRootPart") then
+            if LP.Character and LP.Character:FindFirstChild("HumanoidRootPart") then
+                LP.Character.HumanoidRootPart.CFrame = targetPlayer.Character.HumanoidRootPart.CFrame
+            end
+        end
+    end
+end)
+
+UtilityGroup:AddButton("Teleport to Nearest", function()
+    local target = getNearestPlayer()
+    if target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
+        if LP.Character and LP.Character:FindFirstChild("HumanoidRootPart") then
+            LP.Character.HumanoidRootPart.CFrame = target.Character.HumanoidRootPart.CFrame
+        end
+    end
+end)
+
+local dragSelected = false
+UtilityGroup:AddToggle("DragSelectedToggle", { Text = "Drag Selected Player", Default = false, Callback = function(v) 
+    dragSelected = v
+end })
+
+local dragAll = false
+UtilityGroup:AddToggle("DragAllToggle", { Text = "Drag All Players", Default = false, Callback = function(v) 
+    dragAll = v
+end })
+
+-- Avatar Copy Logic
+local avatarSelectedPlayerName = nil
+
+local AvatarPlayerDropdown = UtilityGroup:AddDropdown("AvatarPlayerDropdown", {
+    Values = getPlayerNames(),
+    Default = 1,
+    Multi = false,
+    Text = "Select Player to Copy",
+    Callback = function(Value)
+        avatarSelectedPlayerName = Value
+    end
+})
+
+Players.PlayerAdded:Connect(function()
+    task.wait(0.1)
+    AvatarPlayerDropdown:SetValues(getPlayerNames())
+end)
+Players.PlayerRemoving:Connect(function()
+    task.wait(0.1)
+    AvatarPlayerDropdown:SetValues(getPlayerNames())
+end)
+
+UtilityGroup:AddButton("Copy Avatar", function()
+    if avatarSelectedPlayerName then
+        local targetPlayer = Players:FindFirstChild(avatarSelectedPlayerName)
+        if targetPlayer and targetPlayer.Character then
+            local myChar = LP.Character
+            local targetChar = targetPlayer.Character
+            
+            if myChar and targetChar then
+                local myHum = myChar:FindFirstChildOfClass("Humanoid")
+                local targetHum = targetChar:FindFirstChildOfClass("Humanoid")
+                
+                if myHum and targetHum then
+                    -- 1. Apply their exact in-game humanoid description (handles scaling and base packages)
+                    local success, desc = pcall(function()
+                        return targetHum:GetAppliedDescription()
+                    end)
+                    if success and desc then
+                        myHum:ApplyDescription(desc)
+                    end
+                end
+                
+                -- 2. Manually copy visual items to ensure custom/game-specific accessories and clothes are copied perfectly
+                for _, v in pairs(myChar:GetChildren()) do
+                    if v:IsA("Accessory") or v:IsA("Shirt") or v:IsA("Pants") or v:IsA("ShirtGraphic") or v:IsA("CharacterMesh") or v:IsA("BodyColors") then
+                        v:Destroy()
+                    end
+                end
+                
+                for _, v in pairs(targetChar:GetChildren()) do
+                    if v:IsA("Accessory") or v:IsA("Shirt") or v:IsA("Pants") or v:IsA("ShirtGraphic") or v:IsA("CharacterMesh") or v:IsA("BodyColors") then
+                        local clone = v:Clone()
+                        if clone then clone.Parent = myChar end
+                    end
+                end
+                
+                local myHead = myChar:FindFirstChild("Head")
+                local targetHead = targetChar:FindFirstChild("Head")
+                if myHead and targetHead then
+                    for _, v in pairs(myHead:GetChildren()) do
+                        if v:IsA("Decal") or v:IsA("Texture") then v:Destroy() end
+                    end
+                    for _, v in pairs(targetHead:GetChildren()) do
+                        if v:IsA("Decal") or v:IsA("Texture") then 
+                            local clone = v:Clone()
+                            if clone then clone.Parent = myHead end
+                        end
+                    end
+                end
+            end
+        end
+    end
+end)
+
+local lastDragUpdate = 0
+RunService.RenderStepped:Connect(function()
+    local currentTime = tick()
+    if currentTime - lastDragUpdate >= 1 then
+        lastDragUpdate = currentTime
+        
+        if LP.Character and LP.Character:FindFirstChild("HumanoidRootPart") then
+            local myPos = LP.Character.HumanoidRootPart.CFrame
+            if dragSelected and selectedPlayerName then
+                local targetPlayer = Players:FindFirstChild(selectedPlayerName)
+                if targetPlayer and targetPlayer.Character and targetPlayer.Character:FindFirstChild("HumanoidRootPart") then
+                    targetPlayer.Character.HumanoidRootPart.CFrame = myPos * CFrame.new(0, 0, -4)
+                end
+            end
+            if dragAll then
+                for _, p in ipairs(Players:GetPlayers()) do
+                    if p ~= LP and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+                        p.Character.HumanoidRootPart.CFrame = myPos * CFrame.new(0, 0, -4)
+                    end
+                end
+            end
+        end
+    end
+end)
+
+-- Jump ESP Logic
+local jumpESPEnabled = false
+local jumpHighlights = {}
+
+local function applyJumpESP(player)
+    local function onCharacterAdded(char)
+        if not jumpHighlights[player] then
+            local hl = Instance.new("Highlight")
+            hl.Name = "JumpESP"
+            hl.FillTransparency = 1
+            hl.OutlineColor = Color3.fromRGB(255, 255, 0)
+            hl.OutlineTransparency = 0
+            hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+            hl.Enabled = false
+            jumpHighlights[player] = hl
+        end
+        
+        jumpHighlights[player].Parent = char
+        
+        local hum = char:WaitForChild("Humanoid", 5)
+        if hum then
+            hum.StateChanged:Connect(function(old, new)
+                if not jumpESPEnabled then 
+                    if jumpHighlights[player] then jumpHighlights[player].Enabled = false end
+                    return 
+                end
+                if new == Enum.HumanoidStateType.Jumping or new == Enum.HumanoidStateType.Freefall then
+                    if jumpHighlights[player] then jumpHighlights[player].Enabled = true end
+                else
+                    if jumpHighlights[player] then jumpHighlights[player].Enabled = false end
+                end
+            end)
+        end
+    end
+    
+    if player.Character then
+        onCharacterAdded(player.Character)
+    end
+    player.CharacterAdded:Connect(onCharacterAdded)
+end
+
+for _, player in ipairs(Players:GetPlayers()) do
+    applyJumpESP(player)
+end
+Players.PlayerAdded:Connect(applyJumpESP)
+
+Players.PlayerRemoving:Connect(function(player)
+    if jumpHighlights[player] then
+        jumpHighlights[player]:Destroy()
+        jumpHighlights[player] = nil
+    end
+end)
+
+ESPGroup:AddToggle("JumpESPToggle", { Text = "Jump ESP", Default = false, Callback = function(v) 
+    jumpESPEnabled = v
+    if not v then
+        for _, hl in pairs(jumpHighlights) do
+            hl.Enabled = false
+        end
+    end
+end })
+
+-- Player ESP Logic
+local playerESPEnabled = false
+local playerHighlights = {}
+
+local function applyPlayerESP(player)
+    if player == LP then return end
+    local char = player.Character
+    if not char then return end
+    
+    if not playerHighlights[player] then
+        local hl = Instance.new("Highlight")
+        hl.Name = "PlayerESP"
+        hl.FillTransparency = 0.7
+        hl.FillColor = Color3.fromRGB(255, 0, 0)
+        hl.OutlineColor = Color3.fromRGB(255, 255, 255)
+        hl.OutlineTransparency = 0
+        hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+        playerHighlights[player] = hl
+    end
+    
+    playerHighlights[player].Parent = char
+    playerHighlights[player].Enabled = playerESPEnabled
+end
+
+local function removePlayerESP(player)
+    if playerHighlights[player] then
+        playerHighlights[player]:Destroy()
+        playerHighlights[player] = nil
+    end
+end
+
+Players.PlayerAdded:Connect(function(player)
+    player.CharacterAdded:Connect(function()
+        task.wait(0.5)
+        if playerESPEnabled then applyPlayerESP(player) end
+    end)
+end)
+
+Players.PlayerRemoving:Connect(removePlayerESP)
+
+for _, player in ipairs(Players:GetPlayers()) do
+    player.CharacterAdded:Connect(function()
+        task.wait(0.5)
+        if playerESPEnabled then applyPlayerESP(player) end
+    end)
+end
+
+ESPGroup:AddToggle("PlayerESPToggle", { Text = "Player ESP", Default = false, Callback = function(v) 
+    playerESPEnabled = v
+    for _, player in ipairs(Players:GetPlayers()) do
+        if v then
+            applyPlayerESP(player)
+        else
+            if playerHighlights[player] then
+                playerHighlights[player].Enabled = false
+            end
+        end
+    end
+end })
+
+-- Vehicle ESP Logic (Brookhaven RP & Universal)
+local vehicleESPEnabled = false
+local vehicleHighlights = {}
+
+local function applyVehicleESP(vehicle)
+    if not vehicleHighlights[vehicle] then
+        local hl = Instance.new("Highlight")
+        hl.Name = "VehicleESP"
+        hl.FillTransparency = 1
+        hl.OutlineColor = Color3.fromRGB(0, 255, 0)
+        hl.OutlineTransparency = 0
+        hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+        vehicleHighlights[vehicle] = hl
+    end
+    
+    vehicleHighlights[vehicle].Parent = vehicle
+    vehicleHighlights[vehicle].Enabled = vehicleESPEnabled
+end
+
+local function removeVehicleESP(vehicle)
+    if vehicleHighlights[vehicle] then
+        vehicleHighlights[vehicle]:Destroy()
+        vehicleHighlights[vehicle] = nil
+    end
+end
+
+ESPGroup:AddToggle("VehicleESPToggle", { Text = "Vehicle ESP", Default = false, Callback = function(v) 
+    vehicleESPEnabled = v
+    
+    if v then
+        local vehiclesFolder = Workspace:FindFirstChild("Vehicles")
+        if vehiclesFolder then
+            for _, vehicle in pairs(vehiclesFolder:GetChildren()) do
+                if vehicle:IsA("Model") then
+                    applyVehicleESP(vehicle)
+                end
+            end
+        else
+            for _, desc in pairs(Workspace:GetDescendants()) do
+                if desc:IsA("VehicleSeat") and desc.Parent and desc.Parent:IsA("Model") then
+                    applyVehicleESP(desc.Parent)
+                end
+            end
+        end
+    else
+        for _, hl in pairs(vehicleHighlights) do
+            hl.Enabled = false
+        end
+    end
+end })
+
+Workspace.DescendantAdded:Connect(function(desc)
+    if vehicleESPEnabled then
+        if desc:IsA("Model") and desc.Parent and desc.Parent.Name == "Vehicles" then
+            task.wait(0.5)
+            applyVehicleESP(desc)
+        elseif desc:IsA("VehicleSeat") and desc.Parent and desc.Parent:IsA("Model") then
+            task.wait(0.5)
+            applyVehicleESP(desc.Parent)
+        end
+    end
+end)
+
+Workspace.DescendantRemoving:Connect(function(desc)
+    if vehicleHighlights[desc] then
+        removeVehicleESP(desc)
+    end
+end)
+
+-- Misc Tab / Vehicle Spawner Logic
+local VehicleGroup = Tabs["Misc"]:AddRightGroupbox("Vehicle Spawner", "car")
+
+local function getVehicleNames()
+    local names = {}
+    local vehiclesFolder = ReplicatedStorage:FindFirstChild("Vehicles")
+    if vehiclesFolder then
+        for _, v in pairs(vehiclesFolder:GetChildren()) do
+            if v:IsA("Model") then
+                table.insert(names, v.Name)
+            end
+        end
+    end
+    table.sort(names)
+    return names
+end
+
+local selectedVehicleName = nil
+local vehicleList = getVehicleNames()
+if #vehicleList == 0 then table.insert(vehicleList, "None Found") end
+
+local VehicleDropdown = VehicleGroup:AddDropdown("VehicleDropdown", {
+    Values = vehicleList,
+    Default = 1,
+    Multi = false,
+    Text = "Select Vehicle",
+    Callback = function(Value)
+        selectedVehicleName = Value
+    end
+})
+
+VehicleGroup:AddButton("Spawn Selected", function()
+    if selectedVehicleName and selectedVehicleName ~= "None Found" then
+        local spawnRemote = ReplicatedStorage:FindFirstChild("SpawnVehicle", true)
+        if spawnRemote and spawnRemote:IsA("RemoteEvent") then
+            spawnRemote:FireServer(selectedVehicleName)
+        end
+    end
+end)
+
+VehicleGroup:AddButton("Spawn All", function()
+    local spawnRemote = ReplicatedStorage:FindFirstChild("SpawnVehicle", true)
+    if spawnRemote and spawnRemote:IsA("RemoteEvent") then
+        local vehiclesFolder = ReplicatedStorage:FindFirstChild("Vehicles")
+        if vehiclesFolder then
+            for _, v in pairs(vehiclesFolder:GetChildren()) do
+                if v:IsA("Model") then
+                    spawnRemote:FireServer(v.Name)
+                    task.wait(0.1) -- Slight delay to prevent crashing/ratelimits
+                end
+            end
+        end
+    end
+end)
+
+VehicleGroup:AddButton("Refresh Vehicles", function()
+    local newList = getVehicleNames()
+    if #newList == 0 then table.insert(newList, "None Found") end
+    VehicleDropdown:SetValues(newList)
+end)
+
+local sitOnVehicleEnabled = false
+local currentVehicleTarget = nil
+
+local function getNearestVehicleSeat()
+    local nearest = nil
+    local minDist = math.huge
+    local myChar = LP.Character
+    if not myChar or not myChar:FindFirstChild("HumanoidRootPart") then return nil end
+    local myPos = myChar.HumanoidRootPart.Position
+
+    local vehiclesFolder = Workspace:FindFirstChild("Vehicles")
+    local searchArea = vehiclesFolder and vehiclesFolder:GetDescendants() or Workspace:GetDescendants()
+
+    for _, desc in pairs(searchArea) do
+        if desc:IsA("VehicleSeat") then
+            local dist = (desc.Position - myPos).Magnitude
+            if dist < minDist then
+                minDist = dist
+                nearest = desc
+            end
+        end
+    end
+    return nearest
+end
+
+VehicleGroup:AddToggle("SitOnVehicleToggle", { Text = "Sit on Nearest Vehicle", Default = false, Callback = function(v) 
+    sitOnVehicleEnabled = v
+    if v then
+        currentVehicleTarget = getNearestVehicleSeat()
+    else
+        currentVehicleTarget = nil
+    end
+end })
+
+RunService.RenderStepped:Connect(function()
+    if sitOnVehicleEnabled and currentVehicleTarget and currentVehicleTarget.Parent then
+        if LP.Character and LP.Character:FindFirstChild("HumanoidRootPart") then
+            -- Position on the roof (approx 6 studs above the seat)
+            LP.Character.HumanoidRootPart.CFrame = currentVehicleTarget.CFrame * CFrame.new(0, 6, 0)
+            LP.Character.HumanoidRootPart.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+            LP.Character.HumanoidRootPart.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+        end
+    elseif sitOnVehicleEnabled and (not currentVehicleTarget or not currentVehicleTarget.Parent) then
+        currentVehicleTarget = getNearestVehicleSeat()
+    end
+end)
+
+-- Misc Tab / Emotes Logic
+local EmoteGroup = Tabs["Misc"]:AddLeftGroupbox("Emotes", "smile")
+
+local foundAnimations = {}
+local animationNames = {"None"}
+local selectedEmoteName = nil
+local currentEmoteTrack = nil
+
+local function refreshEmotes()
+    foundAnimations = {}
+    animationNames = {"None"}
+    
+    local function scanForAnimations(parent)
+        for _, obj in pairs(parent:GetDescendants()) do
+            if obj:IsA("Animation") and obj.AnimationId and obj.AnimationId ~= "" then
+                local name = obj.Name
+                -- Prevent duplicates
+                if not foundAnimations[name] then
+                    foundAnimations[name] = obj
+                    table.insert(animationNames, name)
+                end
+            end
+        end
+    end
+    
+    -- Scan ReplicatedStorage and Workspace for animations
+    scanForAnimations(ReplicatedStorage)
+    scanForAnimations(Workspace)
+    
+    table.sort(animationNames)
+end
+
+-- Initial scan
+refreshEmotes()
+
+local EmoteDropdown = EmoteGroup:AddDropdown("EmoteDropdown", {
+    Values = animationNames,
+    Default = 1,
+    Multi = false,
+    Text = "Select Emote",
+    Callback = function(Value)
+        selectedEmoteName = Value
+    end
+})
+
+EmoteGroup:AddButton("Refresh Emotes", function()
+    refreshEmotes()
+    EmoteDropdown:SetValues(animationNames)
+end)
+
+EmoteGroup:AddButton("Play Emote", function()
+    if selectedEmoteName and selectedEmoteName ~= "None" and foundAnimations[selectedEmoteName] then
+        local char = LP.Character
+        if char then
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            if hum then
+                local animator = hum:FindFirstChildOfClass("Animator") or Instance.new("Animator", hum)
+                
+                -- Stop currently playing track if exists
+                if currentEmoteTrack then
+                    currentEmoteTrack:Stop()
+                end
+                
+                -- Load and play the new track
+                local success, track = pcall(function()
+                    return animator:LoadAnimation(foundAnimations[selectedEmoteName])
+                end)
+                
+                if success and track then
+                    currentEmoteTrack = track
+                    currentEmoteTrack:Play()
+                end
+            end
+        end
+    end
+end)
+
+EmoteGroup:AddButton("Stop Emote", function()
+    if currentEmoteTrack then
+        currentEmoteTrack:Stop()
+        currentEmoteTrack = nil
+    end
+end)
+
+-- Misc Tab / Troll Logic (Backshots)
+local TrollGroup = Tabs["Misc"]:AddRightGroupbox("Troll", "ghost")
+
+local bsSelectedPlayer = nil
+
+local BSDropdown = TrollGroup:AddDropdown("BSDropdown", {
+    Values = getPlayerNames(),
+    Default = 1,
+    Multi = false,
+    Text = "Select Player",
+    Callback = function(Value)
+        bsSelectedPlayer = Value
+    end
+})
+
+Players.PlayerAdded:Connect(function()
+    task.wait(0.1)
+    BSDropdown:SetValues(getPlayerNames())
+end)
+Players.PlayerRemoving:Connect(function()
+    task.wait(0.1)
+    BSDropdown:SetValues(getPlayerNames())
+end)
+
+local bsEnabled = false
+local bsSpeed = 15
+local bsDistance = 1.2
+local bsStroke = 0.8
+
+TrollGroup:AddToggle("BSToggle", { Text = "Enable Follow?", Default = false, Callback = function(v) 
+    bsEnabled = v
+end })
+
+TrollGroup:AddSlider("BSSpeed", { Text = "Speed", Default = 15, Min = 1, Max = 50, Rounding = 1, Callback = function(v) 
+    bsSpeed = v
+end })
+
+RunService.RenderStepped:Connect(function()
+    if bsEnabled and bsSelectedPlayer then
+        local targetPlayer = Players:FindFirstChild(bsSelectedPlayer)
+        if targetPlayer and targetPlayer.Character and targetPlayer.Character:FindFirstChild("HumanoidRootPart") then
+            local myChar = LP.Character
+            if myChar and myChar:FindFirstChild("HumanoidRootPart") then
+                local targetHRP = targetPlayer.Character.HumanoidRootPart
+                local myHRP = myChar.HumanoidRootPart
+                
+                -- math.sin(tick() * bsSpeed) oscillates between -1 and 1
+                local offsetZ = bsDistance + (math.sin(tick() * bsSpeed) * bsStroke)
+                
+                -- Places us directly behind them, facing the exact same direction as them (Shift locked to their back)
+                myHRP.CFrame = targetHRP.CFrame * CFrame.new(0, 0, offsetZ)
+                
+                -- Freeze velocity to avoid flinging
+                myHRP.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                myHRP.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+            end
+        end
+    end
+end)
+
+-- UI Settings
+local MenuGroup = Tabs["UI Settings"]:AddLeftGroupbox("Menu", "wrench")
+MenuGroup:AddToggle("KeybindMenuOpen", { Default = Library.KeybindFrame.Visible, Text = "Open Keybind Menu", Callback = function(value) Library.KeybindFrame.Visible = value end })
+MenuGroup:AddToggle("ShowCustomCursor", { Text = "Custom Cursor", Default = true, Callback = function(Value) Library.ShowCustomCursor = Value end })
+MenuGroup:AddDropdown("NotificationSide", { Values = { "Left", "Right" }, Default = "Right", Text = "Notification Side", Callback = function(Value) Library:SetNotifySide(Value) end })
+MenuGroup:AddDropdown("DPIDropdown", { Values = { "50%", "75%", "100%", "125%", "150%", "175%", "200%" }, Default = "100%", Text = "DPI Scale", Callback = function(Value) Value = Value:gsub("%%", ""); local DPI = tonumber(Value); Library:SetDPIScale(DPI) end })
+MenuGroup:AddDivider()
+MenuGroup:AddLabel("Menu bind"):AddKeyPicker("MenuKeybind", { Default = "RightShift", NoUI = true, Text = "Menu keybind" })
+MenuGroup:AddButton("Unload", function() Library:Unload() end)
+
+Library.ToggleKeybind = Options.MenuKeybind
+ThemeManager:SetLibrary(Library)
+SaveManager:SetLibrary(Library)
+SaveManager:IgnoreThemeSettings()
+SaveManager:SetIgnoreIndexes({ "MenuKeybind" })
+ThemeManager:SetFolder("FishyHub")
+SaveManager:SetFolder("FishyHub/" .. tostring(game.PlaceId))
+SaveManager:BuildConfigSection(Tabs["UI Settings"])
+ThemeManager:ApplyToTab(Tabs["UI Settings"])
+SaveManager:LoadAutoloadConfig()
+Library:OnUnload(function() print("Unloaded!") end)
+
+Library:OnUnload(function()
+    print("Fishy Unloaded")
+end)
