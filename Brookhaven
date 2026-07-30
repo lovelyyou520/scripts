@@ -280,8 +280,8 @@ RunService.RenderStepped:Connect(function()
             local result = Workspace:Raycast(seat.Position, Vector3.new(0, -20, 0), raycastParams)
             local yVel = 0
             if result then
-                -- Target ~4.5 studs above ground (roughly 1 stud clearance for most cars)
-                local targetY = result.Position.Y + 4.5
+                -- Target ~8.5 studs above ground (roughly 5 studs clearance for most cars)
+                local targetY = result.Position.Y + 8.5
                 yVel = (targetY - seat.Position.Y) * 10
             end
             
@@ -1032,12 +1032,23 @@ Players.PlayerRemoving:Connect(function()
     BSDropdown:SetValues(getPlayerNames())
 end)
 
+-- ========== NEW NEAREST PLAYER BUTTON ==========
+TrollGroup:AddButton("Nearest Player", function()
+    local nearest = getNearestPlayer()
+    if nearest then
+        local name = nearest.Name
+        BSDropdown:SetValue(name)
+        bsSelectedPlayer = name
+    end
+end)
+-- ===============================================
+
 local bsEnabled = false
 local bsSpeed = 15
 local bsDistance = 1.2
 local bsStroke = 0.8
 
-TrollGroup:AddToggle("BSToggle", { Text = "Enable Follow?", Default = false, Callback = function(v) 
+TrollGroup:AddToggle("BSToggle", { Text = "Enable Troll?", Default = false, Callback = function(v) 
     bsEnabled = v
 end })
 
