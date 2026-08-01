@@ -1,0 +1,876 @@
+local repo = "https://raw.githubusercontent.com/deividcomsono/Obsidian/main/"
+local Library = loadstring(game:HttpGet(repo .. "Library.lua"))()
+local ThemeManager = loadstring(game:HttpGet(repo .. "addons/ThemeManager.lua"))()
+local SaveManager = loadstring(game:HttpGet(repo .. "addons/SaveManager.lua"))()
+
+local Options = Library.Options
+local Toggles = Library.Toggles
+
+Library.ForceCheckbox = false
+Library.ShowToggleFrameInKeybinds = true
+
+local Window = Library:CreateWindow({
+	Title = "Fishy Hub",
+	Footer = "Rivals",
+	Icon = 94651747085280,
+	NotifySide = "Right",
+	ShowCustomCursor = false
+})
+
+local Tabs = {
+    Combat = Window:AddTab("Combat", "crosshair"),
+    Spoof  = Window:AddTab("Spoof", "user"),
+    ESP    = Window:AddTab("ESP", "eye"),
+    ["UI Settings"] = Window:AddTab("UI Settings", "settings"),
+}
+
+local Players           = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local CollectionService = game:GetService("CollectionService")
+local RunService        = game:GetService("RunService")
+local LocalPlayer       = Players.LocalPlayer
+
+local function SafeDrawing(class, props)
+    local ok, obj = pcall(Drawing.new, class)
+    if not ok or not obj then return nil end
+    if props then
+        for k, v in pairs(props) do
+            pcall(function() obj[k] = v end)
+        end
+    end
+    return obj
+end
+
+local LeftCombat  = Tabs.Combat:AddLeftGroupbox("Weapon Mods")
+local RightCombat = Tabs.Combat:AddRightGroupbox("Aimbot / Silent")
+local DesyncBox   = Tabs.Combat:AddLeftGroupbox("Desync / Redirect")
+
+LeftCombat:AddToggle("RapidFire", {
+    Text = "Rapid Fire",
+    Default = false,
+    Tooltip = "Sets every weapon ShootCooldown to near-zero",
+})
+
+LeftCombat:AddToggle("PerfectAccuracy", {
+    Text = "Perfect Accuracy",
+    Default = false,
+    Tooltip = "Zeroes Spread / Accuracy / Recoil on all weapons",
+})
+
+RightCombat:AddToggle("SilentAim", {
+    Text = "Silent Aim",
+    Default = false,
+    Tooltip = "Redirects raycasts to closest target inside FOV",
+})
+
+RightCombat:AddDropdown("HitPart", {
+    Text = "Hit Part",
+    Values = {"Head", "HumanoidRootPart", "Torso", "UpperTorso"},
+    Default = 1,
+})
+
+RightCombat:AddSlider("FOVRadius", {
+    Text = "FOV Radius",
+    Default = 300,
+    Min = 50,
+    Max = 800,
+    Rounding = 0,
+})
+
+RightCombat:AddToggle("ShowFOV", {
+    Text = "Show FOV Circle",
+    Default = false,
+    Tooltip = "Shows FOV circle independent of Silent Aim",
+})
+
+RightCombat:AddLabel("FOV Color"):AddColorPicker("FOVColor", {
+    Default = Color3.fromRGB(255, 255, 255),
+})
+
+DesyncBox:AddToggle("Desync", {
+    Text = "Desync + Bullet Redirect",
+    Default = false,
+    Tooltip = "Desyncs your root under target + forces bullets to hit",
+    Risky = true,
+})
+
+local SpoofLeft  = Tabs.Spoof:AddLeftGroupbox("Name Spoof")
+local SpoofRight = Tabs.Spoof:AddRightGroupbox("Stats Spoof")
+
+SpoofLeft:AddToggle("NameSpoof", {
+    Text = "Name Spoof",
+    Default = false,
+})
+
+SpoofLeft:AddInput("YourName", {
+    Text = "Your Spoofed Name",
+    Default = "Andy",
+    Finished = true,
+})
+
+SpoofLeft:AddInput("EnemyName", {
+    Text = "Enemy Spoofed Name",
+    Default = "Johnny",
+    Finished = true,
+})
+
+SpoofRight:AddToggle("LevelSpoof", {
+    Text = "Level Spoof",
+    Default = false,
+})
+
+SpoofRight:AddSlider("SpoofedLevel", {
+    Text = "Spoofed Level",
+    Default = 996,
+    Min = 1,
+    Max = 9999,
+    Rounding = 0,
+})
+
+SpoofRight:AddToggle("WinstreakSpoof", {
+    Text = "Winstreak Spoof",
+    Default = false,
+})
+
+SpoofRight:AddSlider("SpoofedWinstreak", {
+    Text = "Spoofed Winstreak",
+    Default = 56,
+    Min = 0,
+    Max = 9999,
+    Rounding = 0,
+})
+
+local ESPLeft   = Tabs.ESP:AddLeftGroupbox("ESP Main")
+local ESPRight  = Tabs.ESP:AddRightGroupbox("ESP Settings")
+local ESPColors = Tabs.ESP:AddLeftGroupbox("ESP Colors")
+
+ESPLeft:AddToggle("ESPEnabled", {
+    Text = "Enable ESP",
+    Default = false,
+})
+
+ESPLeft:AddToggle("ESPBoxes", {
+    Text = "Boxes",
+    Default = false,
+})
+
+ESPLeft:AddToggle("ESPNames", {
+    Text = "Names",
+    Default = false,
+})
+
+ESPLeft:AddToggle("ESPHealth", {
+    Text = "Health Bar",
+    Default = false,
+})
+
+ESPLeft:AddToggle("ESPDistance", {
+    Text = "Distance",
+    Default = false,
+})
+
+ESPLeft:AddToggle("ESPTracers", {
+    Text = "Tracers",
+    Default = false,
+})
+
+ESPRight:AddToggle("ESPTeamCheck", {
+    Text = "Team Check",
+    Default = false,
+})
+
+ESPRight:AddSlider("ESPMaxDistance", {
+    Text = "Max Distance",
+    Default = 1000,
+    Min = 50,
+    Max = 5000,
+    Rounding = 0,
+    Suffix = " studs",
+})
+
+ESPColors:AddLabel("Box Color"):AddColorPicker("ESPBoxColor", {
+    Default = Color3.fromRGB(255, 50, 50),
+})
+
+ESPColors:AddLabel("Name Color"):AddColorPicker("ESPNameColor", {
+    Default = Color3.fromRGB(255, 255, 255),
+})
+
+ESPColors:AddLabel("Tracer Color"):AddColorPicker("ESPTracerColor", {
+    Default = Color3.fromRGB(255, 50, 50),
+})
+
+ESPColors:AddLabel("Health High"):AddColorPicker("ESPHealthHigh", {
+    Default = Color3.fromRGB(0, 255, 0),
+})
+
+ESPColors:AddLabel("Health Low"):AddColorPicker("ESPHealthLow", {
+    Default = Color3.fromRGB(255, 0, 0),
+})
+
+local MenuGroup = Tabs["UI Settings"]:AddLeftGroupbox("Menu")
+
+MenuGroup:AddButton({
+    Text = "Unload",
+    Func = function()
+        Library:Unload()
+    end,
+})
+
+MenuGroup:AddLabel("Menu bind"):AddKeyPicker("MenuKeybind", {
+    Default = "RightShift",
+    NoUI = true,
+    Text = "Menu keybind",
+})
+
+Library.ToggleKeybind = Options.MenuKeybind
+
+ThemeManager:SetLibrary(Library)
+SaveManager:SetLibrary(Library)
+SaveManager:IgnoreThemeSettings()
+SaveManager:SetIgnoreIndexes({"MenuKeybind"})
+ThemeManager:SetFolder("FishyHub")
+SaveManager:SetFolder("FishyHub")
+SaveManager:BuildConfigSection(Tabs["UI Settings"])
+ThemeManager:ApplyToTab(Tabs["UI Settings"])
+
+
+getgenv().SilentConfig = getgenv().SilentConfig or {
+    HitPart = "Head",
+    FOVRadius = 300,
+    ShowFOV = false,
+}
+
+getgenv().NameSpooferConfig = getgenv().NameSpooferConfig or {
+    name_spoof = false,
+    your_spoofed_name = "Andy",
+    spoofed_enemy_names = "Johnny",
+    level_spoof = false,
+    spoofed_level = 996,
+    winstreak_spoof = false,
+    spoofed_winstreak = 56,
+}
+
+getgenv().ESPConfig = getgenv().ESPConfig or {
+    Enabled = false,
+    Boxes = false,
+    Names = false,
+    Health = false,
+    Distance = false,
+    Tracers = false,
+    TeamCheck = true,
+    MaxDistance = 1000,
+    BoxColor = Color3.fromRGB(255, 50, 50),
+    NameColor = Color3.fromRGB(255, 255, 255),
+    TracerColor = Color3.fromRGB(255, 50, 50),
+    HealthHigh = Color3.fromRGB(0, 255, 0),
+    HealthLow = Color3.fromRGB(255, 0, 0),
+}
+
+local SilentCfg = getgenv().SilentConfig
+local SpoofCfg  = getgenv().NameSpooferConfig
+local ESPCfg    = getgenv().ESPConfig
+
+local FOVCircle = SafeDrawing("Circle", {
+    Visible = false,
+    Radius = 300,
+    Color = Color3.fromRGB(255, 255, 255),
+    Thickness = 1.5,
+    Filled = false,
+    Transparency = 1,
+    ZIndex = 999,
+    NumSides = 64,
+})
+
+if FOVCircle then
+    RunService.RenderStepped:Connect(function()
+        local cam = workspace.CurrentCamera
+        if not cam then return end
+        FOVCircle.Position = cam.ViewportSize / 2
+        FOVCircle.Radius = SilentCfg.FOVRadius
+        FOVCircle.Visible = SilentCfg.ShowFOV
+    end)
+end
+
+Toggles.ShowFOV:OnChanged(function()
+    SilentCfg.ShowFOV = Toggles.ShowFOV.Value
+    if FOVCircle then FOVCircle.Visible = SilentCfg.ShowFOV end
+end)
+
+Options.FOVRadius:OnChanged(function()
+    SilentCfg.FOVRadius = Options.FOVRadius.Value
+    if FOVCircle then FOVCircle.Radius = SilentCfg.FOVRadius end
+end)
+
+Options.FOVColor:OnChanged(function()
+    if FOVCircle then FOVCircle.Color = Options.FOVColor.Value end
+end)
+
+Options.HitPart:OnChanged(function()
+    SilentCfg.HitPart = Options.HitPart.Value
+end)
+
+Toggles.RapidFire:OnChanged(function()
+    if not Toggles.RapidFire.Value then return end
+    task.spawn(function()
+        local ok, ItemLibrary = pcall(function()
+            return require(ReplicatedStorage.Modules.ItemLibrary)
+        end)
+        if not ok or not ItemLibrary then
+            Library:Notify("ItemLibrary not found", 3)
+            return
+        end
+        local function scan(tbl)
+            for _, v in pairs(tbl) do
+                if typeof(v) == "table" then
+                    if v.ShootCooldown ~= nil then
+                        v.ShootCooldown = 0.000000000000000001
+                    end
+                    scan(v)
+                end
+            end
+        end
+        scan(ItemLibrary)
+        Library:Notify("RapidFire applied", 2)
+    end)
+end)
+
+Toggles.PerfectAccuracy:OnChanged(function()
+    if not Toggles.PerfectAccuracy.Value then return end
+    task.spawn(function()
+        local ok, ItemLibrary = pcall(function()
+            return require(ReplicatedStorage.Modules.ItemLibrary)
+        end)
+        if not ok or not ItemLibrary then
+            Library:Notify("ItemLibrary not found", 3)
+            return
+        end
+        local function setPerfect(tbl)
+            for _, v in pairs(tbl) do
+                if typeof(v) == "table" then
+                    if v.ShootSpread then v.ShootSpread = 0 end
+                    if v.ShootAccuracy then v.ShootAccuracy = 0 end
+                    if v.ShootRecoil then v.ShootRecoil = 0 end
+                    setPerfect(v)
+                end
+            end
+        end
+        setPerfect(ItemLibrary)
+        Library:Notify("Perfect Accuracy applied", 2)
+    end)
+end)
+
+local Utility, OldRaycast
+
+local function getClosestTarget()
+    local cam = workspace.CurrentCamera
+    if not cam then return nil end
+    local center = Vector2.new(cam.ViewportSize.X / 2, cam.ViewportSize.Y / 2)
+    local closest, closestDist = nil, SilentCfg.FOVRadius
+
+    for _, entity in CollectionService:GetTagged("Entity") do
+        if entity == LocalPlayer.Character then continue end
+        local part = entity:FindFirstChild(SilentCfg.HitPart, true)
+        if not part or not part:IsA("BasePart") then continue end
+
+        local screenPos, onScreen = cam:WorldToViewportPoint(part.Position)
+        if not onScreen then continue end
+
+        local dist = (center - Vector2.new(screenPos.X, screenPos.Y)).Magnitude
+        if dist < closestDist then
+            closestDist = dist
+            closest = part
+        end
+    end
+    return closest
+end
+
+Toggles.SilentAim:OnChanged(function()
+    local enabled = Toggles.SilentAim.Value
+    if enabled then
+        if not Utility then
+            local ok, util = pcall(function()
+                return require(ReplicatedStorage.Modules.Utility)
+            end)
+            if not ok then
+                Library:Notify("Utility module missing", 3)
+                Toggles.SilentAim:SetValue(false)
+                return
+            end
+            Utility = util
+            OldRaycast = Utility.Raycast
+        end
+
+        Utility.Raycast = function(self, origin, direction, maxDist, ...)
+            if type(maxDist) ~= "number" or maxDist < 100 then
+                return OldRaycast(self, origin, direction, maxDist, ...)
+            end
+            local target = getClosestTarget()
+            if not target then
+                return OldRaycast(self, origin, direction, maxDist, ...)
+            end
+            local pos = target.Position
+            local dir = (pos - origin).Unit
+            local dist = (pos - origin).Magnitude
+            if dist > maxDist then
+                dist = maxDist
+                pos = origin + dir * maxDist
+            end
+            return {
+                Position = pos,
+                Distance = dist,
+                Instance = target,
+                Material = target.Material,
+                Normal = -dir,
+            }
+        end
+    else
+        if Utility and OldRaycast then
+            Utility.Raycast = OldRaycast
+        end
+    end
+end)
+
+local DesyncController = { active = false }
+
+function DesyncController:Shutdown()
+    self.active = false
+    if self.conn1 then pcall(function() self.conn1:Disconnect() end) end
+    if self.conn2 then pcall(function() self.conn2:Disconnect() end) end
+    if self.task1 then pcall(function() task.cancel(self.task1) end) end
+    if self.oldfunc and self.GunModule then
+        pcall(function() self.GunModule.StartShooting = self.oldfunc end)
+    end
+end
+
+function DesyncController:Init()
+    self:Shutdown()
+    self.active = true
+    self.target = nil
+    self.desync = false
+
+    local ok, gun = pcall(function()
+        return require(LocalPlayer.PlayerScripts.Modules.ItemTypes.Gun)
+    end)
+    if not ok then
+        Library:Notify("Gun module missing", 3)
+        return
+    end
+    self.GunModule = gun
+
+    local ok2, util = pcall(function()
+        return require(ReplicatedStorage.Modules.Utility)
+    end)
+    if not ok2 then
+        Library:Notify("Utility module missing", 3)
+        return
+    end
+    self.UtilityMod = util
+
+    self.conn1 = RunService.Heartbeat:Connect(function()
+        if not self.active then return end
+        self.target = self:FindClosest()
+    end)
+
+    self.oldfunc = self.GunModule.StartShooting
+    local controller = self
+
+    self.GunModule.StartShooting = function(selfGun, ...)
+        local results = {controller.oldfunc(selfGun, ...)}
+        if not selfGun.ClientFighter or not selfGun.ClientFighter.IsLocalPlayer then
+            return unpack(results)
+        end
+        local data = results[3]
+        if not data or typeof(data) ~= "table" then
+            return unpack(results)
+        end
+        results[4] = true
+        local tgt = controller.target
+        if not controller.active or not tgt or not tgt.Character then
+            return unpack(results)
+        end
+        if not controller.desync or controller.curr ~= tgt then
+            controller:DesyncStart(tgt)
+            task.wait(0.1)
+        end
+        if controller.task1 then
+            pcall(function() task.cancel(controller.task1) end)
+            controller.task1 = nil
+        end
+        local head = tgt.Character:FindFirstChild("Head")
+        if not head then return unpack(results) end
+        local headPos = head.Position
+        local under = headPos - Vector3.new(0, 5, 0)
+        local look = CFrame.lookAt(under, headPos)
+        local randCF = head.CFrame:ToObjectSpace(CFrame.new(headPos + Vector3.new(math.random(), math.random(), math.random())))
+        data[utf8.char(0)] = controller.UtilityMod:EncodeCFrame(CFrame.new(under, headPos) * CFrame.Angles(look:ToOrientation()))
+        data[utf8.char(1)] = controller.UtilityMod:EncodeCFrame(CFrame.new(headPos) * CFrame.Angles(look:ToOrientation()))
+        data[utf8.char(2)] = head
+        data[utf8.char(3)] = controller.UtilityMod:EncodeCFrame(randCF)
+        controller.task1 = task.delay(0.15, function()
+            controller:DesyncStop()
+        end)
+        return unpack(results)
+    end
+end
+
+function DesyncController:FindClosest()
+    local myChar = LocalPlayer.Character
+    if not myChar then return nil end
+    local myRoot = myChar:FindFirstChild("HumanoidRootPart")
+    if not myRoot then return nil end
+    local closest, closestDist = nil, 200
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr == LocalPlayer then continue end
+        if plr:GetAttribute("TeamID") == LocalPlayer:GetAttribute("TeamID") then continue end
+        local char = plr.Character
+        if not char then continue end
+        local root = char:FindFirstChild("HumanoidRootPart")
+        local head = char:FindFirstChild("Head")
+        local hum = char:FindFirstChildWhichIsA("Humanoid")
+        if not (root and head and hum and hum.Health > 0) then continue end
+        local dist = (myRoot.Position - root.Position).Magnitude
+        if dist < closestDist then
+            closestDist = dist
+            closest = plr
+        end
+    end
+    return closest
+end
+
+function DesyncController:DesyncStart(target)
+    if self.conn2 then pcall(function() self.conn2:Disconnect() end) end
+    self.desync = true
+    self.curr = target
+    self.conn2 = RunService.Heartbeat:Connect(function()
+        if not self.desync then return end
+        local char = LocalPlayer.Character
+        local root = char and char:FindFirstChild("HumanoidRootPart")
+        if not root then return end
+        local tRoot = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
+        if not tRoot then
+            self:DesyncStop()
+            return
+        end
+        local oldCF = root.CFrame
+        local oldVel = root.Velocity
+        local oldRot = root.RotVelocity
+        root.CFrame = tRoot.CFrame * CFrame.new(0, -5, 0)
+        RunService:BindToRenderStep("__restore", 101, function()
+            root.CFrame = oldCF
+            root.Velocity = oldVel
+            root.RotVelocity = oldRot
+            RunService:UnbindFromRenderStep("__restore")
+        end)
+    end)
+end
+
+function DesyncController:DesyncStop()
+    self.desync = false
+    self.curr = nil
+    if self.conn2 then
+        pcall(function() self.conn2:Disconnect() end)
+        self.conn2 = nil
+    end
+end
+
+Toggles.Desync:OnChanged(function()
+    if Toggles.Desync.Value then
+        DesyncController:Init()
+        Library:Notify("Desync active", 2)
+    else
+        DesyncController:Shutdown()
+        Library:Notify("Desync disabled", 2)
+    end
+end)
+
+Toggles.NameSpoof:OnChanged(function()
+    SpoofCfg.name_spoof = Toggles.NameSpoof.Value
+end)
+Options.YourName:OnChanged(function()
+    SpoofCfg.your_spoofed_name = Options.YourName.Value
+end)
+Options.EnemyName:OnChanged(function()
+    SpoofCfg.spoofed_enemy_names = Options.EnemyName.Value
+end)
+Toggles.LevelSpoof:OnChanged(function()
+    SpoofCfg.level_spoof = Toggles.LevelSpoof.Value
+end)
+Options.SpoofedLevel:OnChanged(function()
+    SpoofCfg.spoofed_level = Options.SpoofedLevel.Value
+end)
+Toggles.WinstreakSpoof:OnChanged(function()
+    SpoofCfg.winstreak_spoof = Toggles.WinstreakSpoof.Value
+end)
+Options.SpoofedWinstreak:OnChanged(function()
+    SpoofCfg.spoofed_winstreak = Options.SpoofedWinstreak.Value
+end)
+
+local function spoofPlayer(player)
+    if not SpoofCfg.name_spoof then return end
+    pcall(function()
+        if player == LocalPlayer then
+            player.Name = SpoofCfg.your_spoofed_name
+            player.DisplayName = SpoofCfg.your_spoofed_name
+        else
+            player.Name = SpoofCfg.spoofed_enemy_names
+            player.DisplayName = SpoofCfg.spoofed_enemy_names
+        end
+    end)
+end
+
+local function spoofLeaderstats(player)
+    if player ~= LocalPlayer then return end
+    local leaderstats = player:FindFirstChild("CustomLeaderstats")
+    if not leaderstats then return end
+    if SpoofCfg.level_spoof then
+        local levelVal = leaderstats:FindFirstChild("Level")
+        if levelVal and levelVal:IsA("IntValue") then
+            levelVal.Value = SpoofCfg.spoofed_level
+        end
+        pcall(function() player:SetAttribute("Level", SpoofCfg.spoofed_level) end)
+    end
+    if SpoofCfg.winstreak_spoof then
+        local winStreakFolder = leaderstats:FindFirstChild("Win Streak")
+        if winStreakFolder and winStreakFolder:IsA("Folder") then
+            local streakVal = winStreakFolder:FindFirstChildWhichIsA("IntValue")
+            if streakVal then streakVal.Value = SpoofCfg.spoofed_winstreak end
+        elseif winStreakFolder and winStreakFolder:IsA("IntValue") then
+            winStreakFolder.Value = SpoofCfg.spoofed_winstreak
+        end
+        pcall(function() player:SetAttribute("StatisticDuelsWinStreak", SpoofCfg.spoofed_winstreak) end)
+    end
+end
+
+local function findAllTitleLabels(instance, results)
+    results = results or {}
+    if not instance then return results end
+    for _, child in ipairs(instance:GetChildren()) do
+        if child:IsA("TextLabel") and child.Name == "Title" then
+            table.insert(results, child)
+        end
+        findAllTitleLabels(child, results)
+    end
+    return results
+end
+
+local GUI_PATH = {"PlayerGui", "MainGui", "PlayerList", "Container", "Elements", "Container", "Middle", "List", "Container"}
+
+local function getListContainer()
+    local node = LocalPlayer
+    for _, name in ipairs(GUI_PATH) do
+        if not node then return nil end
+        node = node:FindFirstChild(name)
+    end
+    return node
+end
+
+local function spoofTitleLabelsInContainer(container)
+    if not container then return end
+    for _, playerFrame in ipairs(container:GetChildren()) do
+        if playerFrame:IsA("Frame") then
+            local spoofed = false
+            local inner = playerFrame:FindFirstChild("Container")
+            if inner and inner:IsA("Frame") then
+                for _, child in ipairs(inner:GetChildren()) do
+                    if child:IsA("Frame") then
+                        local title = child:FindFirstChild("Title")
+                        if title and title:IsA("TextLabel") then
+                            local isLocal = title.Text == LocalPlayer.Name or title.Text == LocalPlayer.DisplayName
+                            title.Text = isLocal and SpoofCfg.your_spoofed_name or SpoofCfg.spoofed_enemy_names
+                            spoofed = true
+                        end
+                    end
+                end
+            end
+            if not spoofed then
+                for _, title in ipairs(findAllTitleLabels(playerFrame)) do
+                    local isLocal = title.Text == LocalPlayer.Name or title.Text == LocalPlayer.DisplayName
+                    title.Text = isLocal and SpoofCfg.your_spoofed_name or SpoofCfg.spoofed_enemy_names
+                end
+            end
+        end
+    end
+end
+
+task.spawn(function()
+    local playerGui = LocalPlayer:WaitForChild("PlayerGui", 30)
+    if not playerGui then return end
+    while task.wait(0.5) do
+        if SpoofCfg.name_spoof then
+            local container = getListContainer()
+            if container then pcall(spoofTitleLabelsInContainer, container) end
+        end
+    end
+end)
+
+for _, plr in ipairs(Players:GetPlayers()) do
+    spoofPlayer(plr)
+end
+Players.PlayerAdded:Connect(spoofPlayer)
+
+task.spawn(function()
+    while task.wait(3) do
+        if SpoofCfg.level_spoof or SpoofCfg.winstreak_spoof then
+            spoofLeaderstats(LocalPlayer)
+        end
+    end
+end)
+
+local ESPObjects = {}
+
+local function removeESP(player)
+    local data = ESPObjects[player]
+    if not data then return end
+    for _, obj in pairs(data) do
+        if obj then pcall(function() obj:Remove() end) end
+    end
+    ESPObjects[player] = nil
+end
+
+local function createESP(player)
+    if ESPObjects[player] then return end
+    ESPObjects[player] = {
+        Box    = SafeDrawing("Square", {Visible = false, Thickness = 1, Filled = false, ZIndex = 1}),
+        Name   = SafeDrawing("Text", {Visible = false, Center = true, Outline = true, Size = 14, Font = 2, ZIndex = 2}),
+        Health = SafeDrawing("Line", {Visible = false, Thickness = 2, ZIndex = 2}),
+        Tracer = SafeDrawing("Line", {Visible = false, Thickness = 1, ZIndex = 1}),
+        Dist   = SafeDrawing("Text", {Visible = false, Center = true, Outline = true, Size = 12, Font = 2, ZIndex = 2}),
+    }
+end
+
+local function isTeammate(player)
+    if not ESPCfg.TeamCheck then return false end
+    local myTeam = LocalPlayer:GetAttribute("TeamID")
+    local theirTeam = player:GetAttribute("TeamID")
+    if myTeam and theirTeam then return myTeam == theirTeam end
+    if LocalPlayer.Team and player.Team then return LocalPlayer.Team == player.Team end
+    return false
+end
+
+local function updateESP()
+    if not ESPCfg.Enabled then
+        for plr in pairs(ESPObjects) do removeESP(plr) end
+        return
+    end
+    local cam = workspace.CurrentCamera
+    if not cam then return end
+    local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player == LocalPlayer or isTeammate(player) then
+            removeESP(player)
+            continue
+        end
+        local char = player.Character
+        local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+        local root = char and char:FindFirstChild("HumanoidRootPart")
+        local head = char and char:FindFirstChild("Head")
+        if not (hum and root and hum.Health > 0) then
+            removeESP(player)
+            continue
+        end
+        local dist = myRoot and (myRoot.Position - root.Position).Magnitude or 0
+        if dist > ESPCfg.MaxDistance then
+            removeESP(player)
+            continue
+        end
+        createESP(player)
+        local data = ESPObjects[player]
+        if not data then continue end
+
+        local topPos = (head and head.Position + Vector3.new(0, 0.8, 0)) or (root.Position + Vector3.new(0, 2.5, 0))
+        local bottomPos = root.Position - Vector3.new(0, 3, 0)
+        local top, topVis = cam:WorldToViewportPoint(topPos)
+        local bottom, bottomVis = cam:WorldToViewportPoint(bottomPos)
+
+        if not (topVis or bottomVis) then
+            data.Box.Visible = false
+            data.Name.Visible = false
+            data.Health.Visible = false
+            data.Tracer.Visible = false
+            data.Dist.Visible = false
+            continue
+        end
+
+        local height = math.abs(top.Y - bottom.Y)
+        local width = height / 2
+        local boxX = top.X - width / 2
+        local boxY = top.Y
+
+        if ESPCfg.Boxes and data.Box then
+            data.Box.Size = Vector2.new(width, height)
+            data.Box.Position = Vector2.new(boxX, boxY)
+            data.Box.Color = ESPCfg.BoxColor
+            data.Box.Visible = true
+        elseif data.Box then data.Box.Visible = false end
+
+        if ESPCfg.Names and data.Name then
+            data.Name.Text = player.DisplayName
+            data.Name.Position = Vector2.new(top.X, top.Y - 16)
+            data.Name.Color = ESPCfg.NameColor
+            data.Name.Visible = true
+        elseif data.Name then data.Name.Visible = false end
+
+        if ESPCfg.Distance and data.Dist then
+            data.Dist.Text = string.format("[%dm]", math.floor(dist))
+            data.Dist.Position = Vector2.new(bottom.X, bottom.Y + 2)
+            data.Dist.Visible = true
+        elseif data.Dist then data.Dist.Visible = false end
+
+        if ESPCfg.Health and data.Health then
+            local pct = math.clamp(hum.Health / math.max(hum.MaxHealth, 1), 0, 1)
+            local barH = height * pct
+            data.Health.From = Vector2.new(boxX - 5, boxY + height)
+            data.Health.To = Vector2.new(boxX - 5, boxY + height - barH)
+            data.Health.Color = ESPCfg.HealthLow:Lerp(ESPCfg.HealthHigh, pct)
+            data.Health.Visible = true
+        elseif data.Health then data.Health.Visible = false end
+
+        if ESPCfg.Tracers and data.Tracer then
+            data.Tracer.From = Vector2.new(cam.ViewportSize.X / 2, cam.ViewportSize.Y)
+            data.Tracer.To = Vector2.new(bottom.X, bottom.Y)
+            data.Tracer.Color = ESPCfg.TracerColor
+            data.Tracer.Visible = true
+        elseif data.Tracer then data.Tracer.Visible = false end
+    end
+end
+
+Toggles.ESPEnabled:OnChanged(function()
+    ESPCfg.Enabled = Toggles.ESPEnabled.Value
+    if not ESPCfg.Enabled then
+        for plr in pairs(ESPObjects) do removeESP(plr) end
+    end
+end)
+Toggles.ESPBoxes:OnChanged(function() ESPCfg.Boxes = Toggles.ESPBoxes.Value end)
+Toggles.ESPNames:OnChanged(function() ESPCfg.Names = Toggles.ESPNames.Value end)
+Toggles.ESPHealth:OnChanged(function() ESPCfg.Health = Toggles.ESPHealth.Value end)
+Toggles.ESPDistance:OnChanged(function() ESPCfg.Distance = Toggles.ESPDistance.Value end)
+Toggles.ESPTracers:OnChanged(function() ESPCfg.Tracers = Toggles.ESPTracers.Value end)
+Toggles.ESPTeamCheck:OnChanged(function() ESPCfg.TeamCheck = Toggles.ESPTeamCheck.Value end)
+Options.ESPMaxDistance:OnChanged(function() ESPCfg.MaxDistance = Options.ESPMaxDistance.Value end)
+Options.ESPBoxColor:OnChanged(function() ESPCfg.BoxColor = Options.ESPBoxColor.Value end)
+Options.ESPNameColor:OnChanged(function() ESPCfg.NameColor = Options.ESPNameColor.Value end)
+Options.ESPTracerColor:OnChanged(function() ESPCfg.TracerColor = Options.ESPTracerColor.Value end)
+Options.ESPHealthHigh:OnChanged(function() ESPCfg.HealthHigh = Options.ESPHealthHigh.Value end)
+Options.ESPHealthLow:OnChanged(function() ESPCfg.HealthLow = Options.ESPHealthLow.Value end)
+
+RunService.RenderStepped:Connect(function()
+    pcall(updateESP)
+end)
+Players.PlayerRemoving:Connect(removeESP)
+
+local oldUnload = Library.Unload
+Library.Unload = function(...)
+    DesyncController:Shutdown()
+    if Utility and OldRaycast then pcall(function() Utility.Raycast = OldRaycast end) end
+    if FOVCircle then pcall(function() FOVCircle:Remove() end) end
+    for plr in pairs(ESPObjects) do removeESP(plr) end
+    if oldUnload then oldUnload(...) end
+end
+
+SaveManager:LoadAutoloadConfig()
+
+Library:AddDraggableButton("Open/Close", function()
+    Library:Toggle()
+end, false, 94651747085280, "Left")
