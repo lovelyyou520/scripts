@@ -1,0 +1,840 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
+local UserInputService = game:GetService("UserInputService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Lighting = game:GetService("Lighting")
+local LP = Players.LocalPlayer
+
+local evadeConfig = {
+    ReviveTimeEnabled = true,
+    ReviveTime = 1.5,
+    ReviveAura = false,
+}
+
+local REQ = {}
+local GameDataInit = false
+
+local function initGameData()
+    if GameDataInit then return end
+    GameDataInit = true
+    
+    task.spawn(function()
+        while not (REQ.Contexts and REQ.CharService and REQ.InteractService) do
+            local GCs = getgc(true)
+            for i = 1, #GCs do
+                local v = GCs[i]
+                if type(v) == 'table' then
+                    if rawget(v, 1) and type(v[1]) == 'table' and rawget(v[1], "CollectableIDs") then
+                        REQ.Contexts = v
+                    elseif rawget(v, "GetCharacters") then
+                        REQ.CharService = v
+                    elseif rawget(v, "StartActivate") and rawget(v, "KeyUsed") then
+                        REQ.InteractService = v
+                    end
+                end
+                
+                if REQ.Contexts and REQ.CharService and REQ.InteractService then
+                    break
+                end
+            end
+            task.wait(0.1)
+        end
+        
+        local LowerC = hookfunction or hookfunc
+        if LowerC then
+            pcall(function()
+                local DataReg = require(ReplicatedStorage:WaitForChild("Objects", 9e9):WaitForChild("Game", 9e9):WaitForChild("Character", 9e9):WaitForChild("DataRegistry", 9e9))
+                local oldGet; oldGet = LowerC(DataReg.Get, function(p1, value)
+                    if value == "ReviveLength" and evadeConfig.ReviveTimeEnabled then
+                        return evadeConfig.ReviveTime
+                    end
+                    return oldGet(p1, value)
+                end)
+            end)
+
+            pcall(function()
+                local oldKey; oldKey = LowerC(REQ.InteractService.KeyUsed, function(p1, p2)
+                    if evadeConfig.ReviveAura and p2.Key == "Interact" and p2.KeyCode == Enum.KeyCode.E then
+                        return nil
+                    end
+                    return oldKey(p1, p2)
+                end)
+            end)
+        end
+    end)
+end
+initGameData()
+
+-- Load Libraries
+local repo = "https://raw.githubusercontent.com/deividcomsono/Obsidian/main/"
+local Library = loadstring(game:HttpGet(repo .. "Library.lua"))()
+local ThemeManager = loadstring(game:HttpGet(repo .. "addons/ThemeManager.lua"))()
+local SaveManager = loadstring(game:HttpGet(repo .. "addons/SaveManager.lua"))()
+local Options = Library.Options
+local Toggles = Library.Toggles
+
+Library.ForceCheckbox = false
+Library.ShowToggleFrameInKeybinds = true
+
+-- Mobile UI Setup (Pre-defined so features can use them)
+local ToggleGui = Instance.new("ScreenGui")
+ToggleGui.Name = "FishyToggleUI"
+ToggleGui.ResetOnSpawn = false
+ToggleGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+
+local success = pcall(function() ToggleGui.Parent = game:GetService("CoreGui") end)
+if not success then ToggleGui.Parent = LP:WaitForChild("PlayerGui") end
+
+-- Main UI Toggle Button
+local ToggleBtn = Instance.new("TextButton")
+ToggleBtn.Parent = ToggleGui
+ToggleBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+ToggleBtn.BorderColor3 = Color3.fromRGB(60, 60, 60)
+ToggleBtn.Position = UDim2.new(0, 15, 0.5, -25)
+ToggleBtn.Size = UDim2.new(0, 50, 0, 50)
+ToggleBtn.Font = Enum.Font.SourceSansBold
+ToggleBtn.Text = "Fishy"
+ToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+ToggleBtn.TextSize = 18
+ToggleBtn.BackgroundTransparency = 0.2
+local UICorner = Instance.new("UICorner")
+UICorner.CornerRadius = UDim.new(0, 10)
+UICorner.Parent = ToggleBtn
+
+-- Mobile Down Button (For Float)
+local MobileDownBtn = Instance.new("TextButton")
+MobileDownBtn.Parent = ToggleGui
+MobileDownBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+MobileDownBtn.BorderColor3 = Color3.fromRGB(80, 80, 80)
+MobileDownBtn.Position = UDim2.new(0, 15, 0.5, 35)
+MobileDownBtn.Size = UDim2.new(0, 50, 0, 50)
+MobileDownBtn.Font = Enum.Font.SourceSansBold
+MobileDownBtn.Text = "DOWN"
+MobileDownBtn.TextColor3 = Color3.fromRGB(255, 100, 100)
+MobileDownBtn.TextSize = 14
+MobileDownBtn.BackgroundTransparency = 0.2
+MobileDownBtn.Visible = false
+local UICorner2 = Instance.new("UICorner")
+UICorner2.CornerRadius = UDim.new(0, 10)
+UICorner2.Parent = MobileDownBtn
+
+local isMobileDown = false
+MobileDownBtn.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+        isMobileDown = true
+    end
+end)
+MobileDownBtn.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+        isMobileDown = false
+    end
+end)
+
+-- Drag Logic for ToggleBtn
+local dragging = false
+local dragInput, dragStart, startPos
+ToggleBtn.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true
+        dragStart = input.Position
+        startPos = ToggleBtn.Position
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then dragging = false end
+        end)
+    end
+end)
+ToggleBtn.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+        dragInput = input
+    end
+end)
+UserInputService.InputChanged:Connect(function(input)
+    if input == dragInput and dragging then
+        local delta = input.Position - dragStart
+        ToggleBtn.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+        -- Keep Down Button attached to toggle button
+        MobileDownBtn.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y + 60)
+    end
+end)
+ToggleBtn.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        if dragStart and (input.Position - dragStart).Magnitude < 5 then
+            if type(Library.Toggle) == "function" then Library:Toggle() else pcall(function() Library:ToggleUI() end) end
+        end
+    end
+end)
+
+-- Window Setup
+local Window = Library:CreateWindow({
+    Title = "Fishy | Evade",
+    Footer = "By @fishylvl the goat",
+    NotifySide = "Right",
+    ShowCustomCursor = false,
+})
+
+local Tabs = {
+    ["Main"] = Window:AddTab("Main", "user"),
+    ["Visuals"] = Window:AddTab("Visuals", "eye"),
+    ["Game"] = Window:AddTab("Game", "gamepad-2"),
+    ["UI Settings"] = Window:AddTab("UI Settings", "settings"),
+}
+
+local MovementGroup = Tabs["Main"]:AddLeftGroupbox("Movement", "move")
+
+-- Speed
+local speedEnabled = false
+local speedValue = 1
+local speedLoop = nil
+MovementGroup:AddToggle("SpeedToggle", { Text = "Enable Speed", Default = false, Callback = function(v) 
+    speedEnabled = v
+    if speedLoop then speedLoop:Disconnect(); speedLoop = nil end
+    if v then
+        speedLoop = RunService.RenderStepped:Connect(function()
+            if not LP.Character then return end
+            local hum = LP.Character:FindFirstChildOfClass("Humanoid")
+            local hrp = LP.Character:FindFirstChild("HumanoidRootPart")
+            if hum and hrp and hum.MoveDirection.Magnitude > 0 then
+                hrp.CFrame = hrp.CFrame + (hum.MoveDirection * speedValue)
+            end
+        end)
+    end
+end }):AddKeyPicker("SpeedKey", { Default = "None", SyncToggleState = true, Mode = "Toggle", Text = "Enable Speed" })
+MovementGroup:AddSlider("SpeedSlider", { Text = "Speed Value", Default = 1, Min = 0.1, Max = 10, Rounding = 1, Callback = function(v) speedValue = v end })
+
+-- Fly
+local flightEnabled = false
+local flightSpeed = 50
+local flightLoop = nil
+
+local function stopFlight()
+    if flightLoop then flightLoop:Disconnect(); flightLoop = nil end
+    local char = LP.Character
+    if char then
+        local humanoid = char:FindFirstChildOfClass("Humanoid")
+        local head = char:FindFirstChild("Head")
+        if humanoid then humanoid.PlatformStand = false end
+        if head then head.Anchored = false end
+    end
+end
+
+local function startFlight()
+    stopFlight()
+    local char = LP.Character
+    if not char then return end
+    local humanoid = char:FindFirstChildOfClass("Humanoid")
+    local head = char:FindFirstChild("Head")
+    if not humanoid or not head then return end
+    
+    humanoid.PlatformStand = true
+    head.Anchored = true
+    
+    flightLoop = RunService.Heartbeat:Connect(function(dt)
+        if not char or not char.Parent then stopFlight(); return end
+        local md = humanoid.MoveDirection * (flightSpeed * dt)
+        local cam = Workspace.CurrentCamera
+        local headCF = head.CFrame
+        local camCF = cam.CFrame
+        local off = headCF:ToObjectSpace(camCF).Position
+        camCF = camCF * CFrame.new(-off.X, -off.Y, -off.Z + 1)
+        local cp = camCF.Position
+        local hp = headCF.Position
+        local ov = CFrame.new(cp, Vector3.new(hp.X, cp.Y, hp.Z)):VectorToObjectSpace(md)
+        head.CFrame = CFrame.new(hp) * (camCF - cp) * CFrame.new(ov)
+    end)
+end
+
+MovementGroup:AddToggle("FlyToggle", { Text = "Enable Fly", Default = false, Callback = function(v) 
+    flightEnabled = v
+    if v then startFlight() else stopFlight() end
+end }):AddKeyPicker("FlyKey", { Default = "None", SyncToggleState = true, Mode = "Toggle", Text = "Enable Fly" })
+MovementGroup:AddSlider("FlySpeed", { Text = "Fly Speed", Default = 50, Min = 1, Max = 200, Rounding = 0, Callback = function(v) flightSpeed = v end })
+
+-- Infinite Jump
+local infJumpConnection = nil
+MovementGroup:AddToggle("InfJumpToggle", { Text = "Infinite Jump", Default = false, Callback = function(v) 
+    if infJumpConnection then infJumpConnection:Disconnect(); infJumpConnection = nil end
+    if v then
+        infJumpConnection = UserInputService.JumpRequest:Connect(function()
+            if LP.Character then
+                local hum = LP.Character:FindFirstChildOfClass("Humanoid")
+                if hum then hum:ChangeState(Enum.HumanoidStateType.Jumping) end
+            end
+        end)
+    end
+end }):AddKeyPicker("InfJumpKey", { Default = "None", SyncToggleState = true, Mode = "Toggle", Text = "Infinite Jump" })
+
+-- Jump Power
+local jumpPowerEnabled = false
+local jumpPowerValue = 50
+local jumpLoop = nil
+MovementGroup:AddToggle("JumpPowerToggle", { Text = "Enable Jump Power", Default = false, Callback = function(v)
+    jumpPowerEnabled = v
+    if jumpLoop then jumpLoop:Disconnect(); jumpLoop = nil end
+    if v then
+        jumpLoop = RunService.RenderStepped:Connect(function()
+            if LP.Character then
+                local hum = LP.Character:FindFirstChildOfClass("Humanoid")
+                if hum then hum.UseJumpPower = true; hum.JumpPower = jumpPowerValue end
+            end
+        end)
+    else
+        if LP.Character then
+            local hum = LP.Character:FindFirstChildOfClass("Humanoid")
+            if hum then hum.JumpPower = 50 end
+        end
+    end
+end }):AddKeyPicker("JumpPowerKey", { Default = "None", SyncToggleState = true, Mode = "Toggle", Text = "Enable Jump Power" })
+MovementGroup:AddSlider("JumpPowerSlider", { Text = "Jump Power Value", Default = 50, Min = 10, Max = 500, Rounding = 0, Callback = function(v) jumpPowerValue = v end })
+
+-- True Invisibility
+local invisLoop = nil
+local originalTransparencies = {}
+MovementGroup:AddToggle("InvisToggle", { Text = "Enable Invisibility", Default = false, Callback = function(v)
+    if v then
+        if LP.Character then
+            local lowerTorso = LP.Character:FindFirstChild("LowerTorso")
+            if lowerTorso and lowerTorso:FindFirstChild("Root") then
+                lowerTorso.Root:Destroy()
+                Library:Notify("Invisibility Enabled! (You are a ghost to others)")
+            end
+
+            for _, part in ipairs(LP.Character:GetDescendants()) do
+                if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+                    originalTransparencies[part] = part.Transparency
+                    part.Transparency = 0.5
+                end
+            end
+            
+            invisLoop = RunService.RenderStepped:Connect(function()
+                if LP.Character then
+                    for _, part in ipairs(LP.Character:GetDescendants()) do
+                        if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then part.Transparency = 0.5 end
+                    end
+                end
+            end)
+        end
+    else
+        if invisLoop then invisLoop:Disconnect(); invisLoop = nil end
+        for part, trans in pairs(originalTransparencies) do
+            if part and part.Parent then part.Transparency = trans end
+        end
+        originalTransparencies = {}
+        if LP.Character and LP.Character:FindFirstChild("Humanoid") then
+            LP.Character.Humanoid.Health = 0
+            Library:Notify("Respawning to disable invisibility & reconnect Root.")
+        end
+    end
+end }):AddKeyPicker("InvisKey", { Default = "None", SyncToggleState = true, Mode = "Toggle", Text = "Enable Invisibility" })
+
+MovementGroup:AddDivider()
+
+-- Float (Updated with W/S PC support, Mobile Jump up, and Mobile UI down)
+local floatEnabled = false
+local floatPart = nil
+local floatLoop = nil
+local floatTargetY = 0
+local floatSpeed = 1
+
+MovementGroup:AddToggle("FloatToggle", { Text = "Enable Float", Default = false, Callback = function(v) 
+    floatEnabled = v
+    if floatLoop then floatLoop:Disconnect(); floatLoop = nil end
+    
+    if v then
+        -- Show Mobile Down button if device supports touch
+        if UserInputService.TouchEnabled then
+            MobileDownBtn.Visible = true
+        end
+        
+        if LP.Character and LP.Character:FindFirstChild("HumanoidRootPart") then
+            floatTargetY = LP.Character.HumanoidRootPart.Position.Y
+        end
+        
+        if not floatPart then
+            floatPart = Instance.new("Part")
+            floatPart.Name = "FloatPart" -- Named for Noclip exclusion bypass
+            floatPart.Size = Vector3.new(6, 1, 6)
+            floatPart.Transparency = 1
+            floatPart.Anchored = true
+            if LP.Character then
+                floatPart.Parent = LP.Character
+            else
+                floatPart.Parent = Workspace
+            end
+        end
+        
+        floatLoop = RunService.RenderStepped:Connect(function()
+            if LP.Character and LP.Character:FindFirstChild("HumanoidRootPart") and floatPart then
+                -- Parent to Character is crucial to harmonize with Infinite Yield noclip method
+                if floatPart.Parent ~= LP.Character then
+                    floatPart.Parent = LP.Character 
+                end
+                
+                local hrp = LP.Character.HumanoidRootPart
+                local hum = LP.Character:FindFirstChildOfClass("Humanoid")
+                
+                -- Catch if falling fast/teleporting
+                if math.abs(hrp.Position.Y - floatTargetY) > 15 then
+                    floatTargetY = hrp.Position.Y
+                end
+                
+                -- GO UP: Press 'W' OR use the Mobile/PC Jump Button (`hum.Jump` captures mobile jump perfectly)
+                if UserInputService:IsKeyDown(Enum.KeyCode.W) or (hum and hum.Jump) then
+                    floatTargetY = floatTargetY + floatSpeed
+                end
+                
+                -- GO DOWN: Press 'S' OR press the visual Mobile "DOWN" UI button
+                if UserInputService:IsKeyDown(Enum.KeyCode.S) or isMobileDown then
+                    floatTargetY = floatTargetY - floatSpeed
+                end
+                
+                floatPart.CFrame = CFrame.new(hrp.Position.X, floatTargetY - 3.5, hrp.Position.Z)
+            end
+        end)
+    else
+        MobileDownBtn.Visible = false
+        if floatPart then floatPart:Destroy(); floatPart = nil end
+    end
+end }):AddKeyPicker("FloatKey", { Default = "None", SyncToggleState = true, Mode = "Toggle", Text = "Enable Float" })
+MovementGroup:AddSlider("FloatSpeedSlider", { Text = "Float Speed", Default = 1, Min = 0.1, Max = 10, Rounding = 1, Callback = function(v) floatSpeed = v end })
+
+-- Noclip (Updated to Infinite Yield logic with Float compatibility bypass)
+local noclipEnabled = false
+local noclipLoop = nil
+
+MovementGroup:AddToggle("NoclipToggle", { Text = "Enable Noclip", Default = false, Callback = function(v) 
+    noclipEnabled = v
+    if noclipLoop then noclipLoop:Disconnect(); noclipLoop = nil end
+    if v then
+        -- Runs via Stepped (just like Infinite Yield) and explicitly excludes FloatPart/SafePlatform so you don't fall through your own pads
+        noclipLoop = RunService.Stepped:Connect(function()
+            if LP.Character then
+                for _, part in pairs(LP.Character:GetDescendants()) do
+                    if part:IsA("BasePart") and part.CanCollide and part.Name ~= "FloatPart" and part.Name ~= "EvadeSafeSpotPlatform" then
+                        part.CanCollide = false
+                    end
+                end
+            end
+        end)
+    end
+end }):AddKeyPicker("NoclipKey", { Default = "None", SyncToggleState = true, Mode = "Toggle", Text = "Enable Noclip" })
+
+-- Visuals
+local VisualsGroup = Tabs["Visuals"]:AddLeftGroupbox("Visuals", "eye")
+local SettingsGroup = Tabs["Visuals"]:AddRightGroupbox("Settings", "sun")
+
+-- Full Bright
+local originalLighting = {
+    Ambient = Lighting.Ambient,
+    OutdoorAmbient = Lighting.OutdoorAmbient,
+    Brightness = Lighting.Brightness,
+    ClockTime = Lighting.ClockTime,
+    FogEnd = Lighting.FogEnd,
+    GlobalShadows = Lighting.GlobalShadows
+}
+
+SettingsGroup:AddToggle("FullBrightToggle", { Text = "Full Bright", Default = false, Callback = function(v) 
+    if v then
+        Lighting.Ambient = Color3.new(1, 1, 1)
+        Lighting.OutdoorAmbient = Color3.new(1, 1, 1)
+        Lighting.Brightness = 2
+        Lighting.ClockTime = 14
+        Lighting.FogEnd = 100000
+        Lighting.GlobalShadows = false
+    else
+        Lighting.Ambient = originalLighting.Ambient
+        Lighting.OutdoorAmbient = originalLighting.OutdoorAmbient
+        Lighting.Brightness = originalLighting.Brightness
+        Lighting.ClockTime = originalLighting.ClockTime
+        Lighting.FogEnd = originalLighting.FogEnd
+        Lighting.GlobalShadows = originalLighting.GlobalShadows
+    end
+end }):AddKeyPicker("FullBrightKey", { Default = "None", SyncToggleState = true, Mode = "Toggle", Text = "Full Bright" })
+
+-- Spectate Player
+local spectateTarget = nil
+local spectateEnabled = false
+local playerNames = {}
+for _, v in ipairs(Players:GetPlayers()) do
+    if v ~= LP then table.insert(playerNames, v.Name) end
+end
+
+local SpectateDropdown = SettingsGroup:AddDropdown("SpectateDropdown", { 
+    Values = playerNames, 
+    Default = 1, 
+    Text = "Select Player", 
+    Callback = function(Value) 
+        spectateTarget = Value 
+        if spectateEnabled and spectateTarget then
+            local targetPlayer = Players:FindFirstChild(spectateTarget)
+            if targetPlayer and targetPlayer.Character and targetPlayer.Character:FindFirstChild("Humanoid") then
+                Workspace.CurrentCamera.CameraSubject = targetPlayer.Character.Humanoid
+            end
+        end
+    end 
+})
+
+SettingsGroup:AddToggle("SpectateToggle", { Text = "Spectate Player", Default = false, Callback = function(v)
+    spectateEnabled = v
+    if v and spectateTarget then
+        local targetPlayer = Players:FindFirstChild(spectateTarget)
+        if targetPlayer and targetPlayer.Character and targetPlayer.Character:FindFirstChild("Humanoid") then
+            Workspace.CurrentCamera.CameraSubject = targetPlayer.Character.Humanoid
+        end
+    else
+        if LP.Character and LP.Character:FindFirstChild("Humanoid") then
+            Workspace.CurrentCamera.CameraSubject = LP.Character.Humanoid
+        end
+    end
+end }):AddKeyPicker("SpectateKey", { Default = "None", SyncToggleState = true, Mode = "Toggle", Text = "Spectate Player" })
+
+Players.PlayerAdded:Connect(function(plr)
+    if plr ~= LP then
+        table.insert(playerNames, plr.Name)
+        SpectateDropdown:SetValues(playerNames)
+    end
+end)
+
+Players.PlayerRemoving:Connect(function(plr)
+    for i, name in ipairs(playerNames) do
+        if name == plr.Name then
+            table.remove(playerNames, i)
+            SpectateDropdown:SetValues(playerNames)
+            break
+        end
+    end
+    if spectateTarget == plr.Name and spectateEnabled then
+        if LP.Character and LP.Character:FindFirstChild("Humanoid") then Workspace.CurrentCamera.CameraSubject = LP.Character.Humanoid end
+    end
+end)
+
+-- X-Ray
+local xrayTransparencies = {}
+SettingsGroup:AddToggle("XRayToggle", { Text = "X-Ray", Default = false, Callback = function(v)
+    if v then
+        for _, part in ipairs(Workspace:GetDescendants()) do
+            if part:IsA("BasePart") and not part:IsDescendantOf(LP.Character) then
+                if not xrayTransparencies[part] then xrayTransparencies[part] = part.Transparency end
+                part.Transparency = 0.75
+            end
+        end
+    else
+        for part, originalTrans in pairs(xrayTransparencies) do
+            if part and part.Parent then part.Transparency = originalTrans end
+        end
+        xrayTransparencies = {}
+    end
+end }):AddKeyPicker("XRayKey", { Default = "None", SyncToggleState = true, Mode = "Toggle", Text = "X-Ray" })
+
+-- ESP Functions
+local function createESP(target, name, color, textStr)
+    local highlight = target:FindFirstChild(name)
+    if not highlight then
+        highlight = Instance.new("Highlight")
+        highlight.Name = name
+        highlight.Parent = target
+        highlight.FillColor = color
+        highlight.OutlineColor = color
+        highlight.FillTransparency = 0.5
+        highlight.OutlineTransparency = 0
+        highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    end
+    highlight.FillColor = color
+    highlight.OutlineColor = color
+    highlight.Enabled = true
+
+    if textStr and target:IsA("Model") and target.PrimaryPart then
+        local billboard = target:FindFirstChild(name .. "_BB")
+        if not billboard then
+            billboard = Instance.new("BillboardGui")
+            billboard.Name = name .. "_BB"
+            billboard.Parent = target
+            billboard.Size = UDim2.new(0, 150, 0, 30)
+            billboard.StudsOffset = Vector3.new(0, 3, 0)
+            billboard.AlwaysOnTop = true
+
+            local text = Instance.new("TextLabel")
+            text.Parent = billboard
+            text.Size = UDim2.new(1, 0, 1, 0)
+            text.BackgroundTransparency = 1
+            text.TextColor3 = color
+            text.TextStrokeTransparency = 0.5
+            text.Font = Enum.Font.SourceSansBold
+            text.TextSize = 15
+        end
+        billboard.TextLabel.Text = textStr
+        billboard.TextLabel.TextColor3 = color
+        billboard.Enabled = true
+    end
+end
+
+local function removeESP(target, name)
+    if target then
+        local highlight = target:FindFirstChild(name)
+        if highlight then highlight.Enabled = false end
+        local billboard = target:FindFirstChild(name .. "_BB")
+        if billboard then billboard.Enabled = false end
+    end
+end
+
+-- ESP Main Loop
+local espPlayersEnabled = false
+local espBotsEnabled = false
+local espTicketsEnabled = false
+local espShowText = false
+
+VisualsGroup:AddToggle("ESPShowText", { Text = "Show Real Names (Players)", Default = false, Callback = function(v) espShowText = v end })
+
+local espLoop = RunService.RenderStepped:Connect(function()
+    if espPlayersEnabled then
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player ~= LP and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+                createESP(player.Character, "PlayerESP", Color3.new(0, 1, 0), espShowText and player.Name or nil)
+            end
+        end
+    else
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player ~= LP and player.Character then removeESP(player.Character, "PlayerESP") end
+        end
+    end
+
+    if REQ.CharService then
+        local chars = REQ.CharService:GetCharacters()
+        for _, v in ipairs(chars) do
+            if type(v) == 'table' and v.Done and not v.Local and v.Model and v.PrimaryPart then
+                if v.AI then
+                    if espBotsEnabled then
+                        createESP(v.Model, "BotESP", Color3.new(1, 0, 0), espShowText and v.Name or nil)
+                    else
+                        removeESP(v.Model, "BotESP")
+                    end
+                end
+            end
+        end
+    end
+
+    if REQ.Contexts then
+        for _, ctx in ipairs(REQ.Contexts) do
+            if type(ctx) == 'table' and ctx.CollectableIDs then
+                for id, collectable in pairs(ctx.CollectableIDs) do
+                    local model = collectable:GetCollectableModel()
+                    if model and model.Parent then
+                        if espTicketsEnabled then
+                            createESP(model, "TicketESP", Color3.new(0, 0.5, 1), espShowText and "Ticket" or nil)
+                        else
+                            removeESP(model, "TicketESP")
+                        end
+                    end
+                end
+            end
+        end
+    end
+end)
+
+VisualsGroup:AddToggle("ESPPlayers", { Text = "ESP Players (Green)", Default = false, Callback = function(v) espPlayersEnabled = v end }):AddKeyPicker("ESPPlayersKey", { Default = "None", SyncToggleState = true, Mode = "Toggle", Text = "ESP Players" })
+VisualsGroup:AddToggle("ESPBots", { Text = "ESP Bots (Red)", Default = false, Callback = function(v) espBotsEnabled = v end }):AddKeyPicker("ESPBotsKey", { Default = "None", SyncToggleState = true, Mode = "Toggle", Text = "ESP Bots" })
+VisualsGroup:AddToggle("ESPTickets", { Text = "ESP Tickets (Blue)", Default = false, Callback = function(v) espTicketsEnabled = v end }):AddKeyPicker("ESPTicketsKey", { Default = "None", SyncToggleState = true, Mode = "Toggle", Text = "ESP Tickets" })
+VisualsGroup:AddLabel("ESP only works with X-RAY ON")
+
+-- Automation
+local GameGroup = Tabs["Game"]:AddLeftGroupbox("Automation", "gamepad-2")
+local safePlatform = nil
+
+-- Teleport Math Function
+local function getPlayerByDistance(farthest)
+    if not (LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")) then return nil end
+    local lpPos = LP.Character.HumanoidRootPart.Position
+    local targetPlayer = nil
+    local targetDist = farthest and 0 or math.huge
+
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LP and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
+            local dist = (plr.Character.HumanoidRootPart.Position - lpPos).Magnitude
+            if farthest then
+                if dist > targetDist then
+                    targetDist = dist
+                    targetPlayer = plr
+                end
+            else
+                if dist < targetDist then
+                    targetDist = dist
+                    targetPlayer = plr
+                end
+            end
+        end
+    end
+    return targetPlayer
+end
+
+-- Teleport Functions 
+local function executeTPSafeSpot()
+    if LP.Character and LP.Character:FindFirstChild("HumanoidRootPart") then
+        if not safePlatform then
+            safePlatform = Instance.new("Part")
+            safePlatform.Name = "EvadeSafeSpotPlatform" -- Also explicitly avoided by Noclip bypass
+            safePlatform.Size = Vector3.new(50, 1, 50)
+            safePlatform.Position = Vector3.new(0, 49995, 0)
+            safePlatform.Anchored = true
+            safePlatform.Transparency = 1
+            safePlatform.Parent = Workspace
+        end
+        LP.Character.HumanoidRootPart.CFrame = CFrame.new(0, 50000, 0)
+    end
+end
+
+local function executeTPNearest()
+    local target = getPlayerByDistance(false)
+    if target and target.Character and LP.Character and LP.Character:FindFirstChild("HumanoidRootPart") then
+        LP.Character.HumanoidRootPart.CFrame = target.Character.HumanoidRootPart.CFrame
+        Library:Notify("Teleported to " .. target.Name)
+    else
+        Library:Notify("No players found!")
+    end
+end
+
+local function executeTPFarthest()
+    local target = getPlayerByDistance(true)
+    if target and target.Character and LP.Character and LP.Character:FindFirstChild("HumanoidRootPart") then
+        LP.Character.HumanoidRootPart.CFrame = target.Character.HumanoidRootPart.CFrame
+        Library:Notify("Teleported to " .. target.Name)
+    else
+        Library:Notify("No players found!")
+    end
+end
+
+GameGroup:AddButton("Teleport To Safe Spot", executeTPSafeSpot)
+GameGroup:AddLabel("Bind: TP Safe Spot"):AddKeyPicker("TPSafeKey", { Default = "None", Mode = "Trigger", Text = "TP To Safe Spot", Callback = executeTPSafeSpot })
+GameGroup:AddButton("Teleport To Nearest Player", executeTPNearest)
+GameGroup:AddLabel("Bind: TP Nearest"):AddKeyPicker("TPNearestKey", { Default = "None", Mode = "Trigger", Text = "TP Nearest Player", Callback = executeTPNearest })
+GameGroup:AddButton("Teleport To Farthest Player", executeTPFarthest)
+GameGroup:AddLabel("Bind: TP Farthest"):AddKeyPicker("TPFarthestKey", { Default = "None", Mode = "Trigger", Text = "TP Farthest Player", Callback = executeTPFarthest })
+GameGroup:AddDivider()
+
+local tpDownedEnabled = false
+local tpDownedLoop = nil
+GameGroup:AddToggle("TpDowned", { Text = "Teleport To Downed Player", Default = false, Callback = function(v) 
+    tpDownedEnabled = v
+    if tpDownedLoop then tpDownedLoop:Disconnect(); tpDownedLoop = nil end
+    if v then
+        tpDownedLoop = RunService.Heartbeat:Connect(function()
+            if REQ.CharService and LP.Character and LP.Character:FindFirstChild("HumanoidRootPart") then
+                local chars = REQ.CharService:GetCharacters()
+                for _, c in ipairs(chars) do
+                    if type(c) == 'table' and c.Done and not c.Local and c.State.State == "Downed" and c.PrimaryPart then
+                        LP.Character.HumanoidRootPart.CFrame = CFrame.new(c.PrimaryPart.Position)
+                        break
+                    end
+                end
+            end
+        end)
+    end
+end }):AddKeyPicker("TpDownedKey", { Default = "None", SyncToggleState = true, Mode = "Toggle", Text = "Teleport To Downed Player" })
+
+local autoCollectEnabled = false
+local autoCollectLoop = nil
+GameGroup:AddToggle("AutoCollect", { Text = "Auto Collect Tickets", Default = false, Callback = function(v) 
+    autoCollectEnabled = v
+    if autoCollectLoop then autoCollectLoop:Disconnect(); autoCollectLoop = nil end
+    if v then
+        autoCollectLoop = RunService.Heartbeat:Connect(function()
+            if REQ.Contexts and LP.Character and LP.Character:FindFirstChild("HumanoidRootPart") then
+                for _, ctx in ipairs(REQ.Contexts) do
+                    if type(ctx) == 'table' and ctx.CollectableIDs then
+                        for id, collectable in pairs(ctx.CollectableIDs) do
+                            local pos = collectable.CollectableData.Position
+                            if pos then
+                                LP.Character.HumanoidRootPart.CFrame = CFrame.new(pos)
+                                task.wait(0.5)
+                            end
+                        end
+                    end
+                end
+            end
+        end)
+    end
+end }):AddKeyPicker("AutoCollectKey", { Default = "None", SyncToggleState = true, Mode = "Toggle", Text = "Auto Collect Tickets" })
+
+local reviveAuraEnabled = false
+local reviveAuraLoop = nil
+GameGroup:AddToggle("ReviveAura", { Text = "Revive Aura", Default = false, Callback = function(v) 
+    evadeConfig.ReviveAura = v
+    reviveAuraEnabled = v
+    if reviveAuraLoop then reviveAuraLoop:Disconnect(); reviveAuraLoop = nil end
+    if v then
+        local REvents = ReplicatedStorage:FindFirstChild("Events")
+        local InteractRE = REvents and REvents:FindFirstChild("Interact")
+        
+        reviveAuraLoop = RunService.Heartbeat:Connect(function()
+            if not InteractRE or not REQ.CharService or not LP.Character or not LP.Character:FindFirstChild("HumanoidRootPart") then return end
+            local hrpPos = LP.Character.HumanoidRootPart.Position
+            local chars = REQ.CharService:GetCharacters()
+            for _, c in ipairs(chars) do
+                if type(c) == 'table' and c.Done and not c.Local and c.State.State == "Downed" and c.PrimaryPart then
+                    if (c.PrimaryPart.Position - hrpPos).Magnitude < 30 then InteractRE:FireServer("Revive", c.Tag, true) end
+                end
+            end
+        end)
+    end
+end }):AddKeyPicker("ReviveAuraKey", { Default = "None", SyncToggleState = true, Mode = "Toggle", Text = "Revive Aura" })
+
+GameGroup:AddSlider("ReviveTime", { Text = "Revive Time", Default = 1.5, Min = 1.2, Max = 1.5, Rounding = 2, Callback = function(v) evadeConfig.ReviveTime = v end })
+
+local selfReviveEnabled = false
+local selfReviveLoop = nil
+GameGroup:AddToggle("SelfRevive", { Text = "Self Revive", Default = false, Callback = function(v) 
+    selfReviveEnabled = v
+    if selfReviveLoop then selfReviveLoop:Disconnect(); selfReviveLoop = nil end
+    if v then
+        local REvents = ReplicatedStorage:FindFirstChild("Events")
+        local SetPlayerModeRE = REvents and REvents:FindFirstChild("SetPlayerMode")
+        
+        selfReviveLoop = RunService.Heartbeat:Connect(function()
+            if not SetPlayerModeRE or not REQ.CharService then return end
+            local chars = REQ.CharService:GetCharacters()
+            for _, c in ipairs(chars) do
+                if c.Done and c.Local and c.State.State == "Downed" then
+                    SetPlayerModeRE:FireServer(true)
+                end
+            end
+        end)
+    end
+end }):AddKeyPicker("SelfReviveKey", { Default = "None", SyncToggleState = true, Mode = "Toggle", Text = "Self Revive" })
+
+-- UI Settings
+local MenuGroup = Tabs["UI Settings"]:AddLeftGroupbox("Menu", "wrench")
+MenuGroup:AddToggle("KeybindMenuOpen", { Default = Library.KeybindFrame.Visible, Text = "Open Keybind Menu", Callback = function(value) Library.KeybindFrame.Visible = value end })
+MenuGroup:AddToggle("ShowCustomCursor", { Text = "Custom Cursor", Default = true, Callback = function(Value) Library.ShowCustomCursor = Value end })
+MenuGroup:AddDropdown("NotificationSide", { Values = { "Left", "Right" }, Default = "Right", Text = "Notification Side", Callback = function(Value) Library:SetNotifySide(Value) end })
+MenuGroup:AddDropdown("DPIDropdown", { Values = { "50%", "75%", "100%", "125%", "150%", "175%", "200%" }, Default = "100%", Text = "DPI Scale", Callback = function(Value) Value = Value:gsub("%%", ""); local DPI = tonumber(Value); Library:SetDPIScale(DPI) end })
+MenuGroup:AddDivider()
+MenuGroup:AddLabel("Menu bind"):AddKeyPicker("MenuKeybind", { Default = "RightShift", NoUI = true, Text = "Menu keybind" })
+MenuGroup:AddButton("Unload", function() Library:Unload() end)
+
+Library.ToggleKeybind = Options.MenuKeybind
+ThemeManager:SetLibrary(Library)
+SaveManager:SetLibrary(Library)
+SaveManager:IgnoreThemeSettings()
+SaveManager:SetIgnoreIndexes({ "MenuKeybind" })
+ThemeManager:SetFolder("FishyHub")
+SaveManager:SetFolder("FishyHub/Evade")
+SaveManager:BuildConfigSection(Tabs["UI Settings"])
+ThemeManager:ApplyToTab(Tabs["UI Settings"])
+SaveManager:LoadAutoloadConfig()
+
+Library:OnUnload(function()
+    if ToggleGui then ToggleGui:Destroy() end
+    if safePlatform then safePlatform:Destroy() end
+    if infJumpConnection then infJumpConnection:Disconnect() end
+    if invisLoop then invisLoop:Disconnect() end
+    if jumpLoop then jumpLoop:Disconnect() end
+    
+    if LP.Character and LP.Character:FindFirstChild("Humanoid") then Workspace.CurrentCamera.CameraSubject = LP.Character.Humanoid end
+    
+    for part, trans in pairs(xrayTransparencies) do
+        if part and part.Parent then part.Transparency = trans end
+    end
+    for part, trans in pairs(originalTransparencies) do
+        if part and part.Parent then part.Transparency = trans end
+    end
+    print("Fishy Unloaded")
+end)
