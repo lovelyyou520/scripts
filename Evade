@@ -712,7 +712,7 @@ GameGroup:AddDivider()
 
 local tpDownedEnabled = false
 local tpDownedLoop = nil
-GameGroup:AddToggle("TpDowned", { Text = "Teleport To Downed Player", Default = false, Callback = function(v) 
+GameGroup:AddToggle("TpDowned", { Text = "Teleport To Downed", Default = false, Callback = function(v) 
     tpDownedEnabled = v
     if tpDownedLoop then tpDownedLoop:Disconnect(); tpDownedLoop = nil end
     if v then
