@@ -1,4 +1,4 @@
--- Services
+-- Hardened version – stealth improvements to avoid instant kicks
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
@@ -6,13 +6,21 @@ local UserInputService = game:GetService("UserInputService")
 local HttpService = game:GetService("HttpService")
 local LocalPlayer = Players.LocalPlayer
 local Camera = Workspace.CurrentCamera
-local Mouse = LocalPlayer:GetMouse()
 
--- Load external UI library (unchanged)
-local repo = "https://raw.githubusercontent.com/deividcomsono/Obsidian/main/"
-local Library = loadstring(game:HttpGet(repo .. "Library.lua"))()
-local ThemeManager = loadstring(game:HttpGet(repo .. "addons/ThemeManager.lua"))()
-local SaveManager = loadstring(game:HttpGet(repo .. "addons/SaveManager.lua"))()
+-- Obfuscated URL parts for the UI library (split to evade string scans)
+local urlPart1 = "https://raw.githubusercontent.com/deividcomsono/Obsidian/main/"
+local function loadLib(path)
+	local full = urlPart1 .. path
+	-- Use indirect loadstring and HttpGet to bypass common hooks
+	local get = game[('\72\116\116\112\71\101\116')] -- "HttpGet"
+	local raw = get(game, full)
+	local loader = getfenv()[('\108\111\97\100\115\116\114\105\110\103')] -- "loadstring"
+	return loader(raw)()
+end
+
+local Library = loadLib("Library.lua")
+local ThemeManager = loadLib("addons/ThemeManager.lua")
+local SaveManager = loadLib("addons/SaveManager.lua")
 
 -- Library configuration
 local Options = Library.Options
@@ -37,6 +45,23 @@ local Tabs = {
 }
 
 -- ======================== COMBAT ========================
+local KnifeController = nil
+local hookInfo = nil  -- stores {old, hookfunction result} for cleanup
+
+-- Load KnifeController only when actually needed
+local function ensureKnifeController()
+	if KnifeController then return end
+	-- Protect with pcall so failed require doesn't break everything
+	local success, result = pcall(function()
+		return require(LocalPlayer.PlayerScripts:WaitForChild("Controllers"):WaitForChild("Combat"):WaitForChild("KnifeController"))
+	end)
+	if success then
+		KnifeController = result
+	else
+		warn("Failed to load KnifeController:", result)
+	end
+end
+
 -- Helper functions
 local function isTeamMate(player)
 	if not Toggles.TeamCheck.Value then return false end
@@ -95,7 +120,42 @@ local SilentAimGroup = Tabs.Combat:AddLeftGroupbox("Silent Aim", "swords")
 SilentAimGroup:AddToggle("SilentAimToggle", {
 	Text = "Silent Aim",
 	Default = false,
-	Tooltip = "Moves your mouse to the target when you click"
+	Tooltip = "Silently redirects your knife towards the target",
+	Callback = function(val)
+		if val then
+			-- Load and hook only when enabled
+			ensureKnifeController()
+			if KnifeController and not hookInfo then
+				local old = KnifeController._GetThrowDirection
+				local newFunc = function(self, knife)
+					if Toggles.SilentAimToggle.Value then
+						local target = getClosestPlayerInFOV()
+						if target and target.Character then
+							local hitPart = target.Character:FindFirstChild(Options.HitPartDropdown.Value)
+							if hitPart then
+								return (hitPart.Position - knife.Position).Unit
+							end
+						end
+					end
+					return old(self, knife)
+				end
+				-- Use hookfunction if available, else fallback to direct assignment
+				local hookFunction = hookfunction or function(func, hook) local o = func; func = hook; return o end
+				hookInfo = {
+					old = old,
+					hooked = hookFunction(KnifeController._GetThrowDirection, newFunc)
+				}
+				-- Ensure the hook is applied
+				KnifeController._GetThrowDirection = newFunc
+			end
+		else
+			-- Restore original if hook is active
+			if hookInfo and KnifeController then
+				KnifeController._GetThrowDirection = hookInfo.old
+				hookInfo = nil
+			end
+		end
+	end
 })
 
 SilentAimGroup:AddToggle("TeamCheck", {
@@ -127,104 +187,62 @@ TriggerbotGroup:AddDropdown("TriggerbotMouse", {
 	Tooltip = "Which mouse button to auto-click"
 })
 
--- Silent Aim via mouse movement (no hook)
-local function doSilentAim()
-	if not Toggles.SilentAimToggle.Value then return end
-	local target = getClosestPlayerInFOV()
-	if target then
-		local hitPart = target.Character:FindFirstChild(Options.HitPartDropdown.Value)
-		if hitPart then
-			local screenPos, onScreen = Camera:WorldToViewportPoint(hitPart.Position)
-			if onScreen then
-				Mouse.Move(screenPos.X, screenPos.Y)
-			end
-		end
-	end
-end
-
--- Triggerbot
+-- Triggerbot Loop
 local lastTriggerTime = 0
 local TRIGGER_COOLDOWN = 0.08
 
--- Intercept mouse clicks for Silent Aim + Triggerbot
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-	if gameProcessed then return end
-	if input.UserInputType == Enum.UserInputType.MouseButton1 then
-		-- Silent Aim: move mouse before click
-		doSilentAim()
+local triggerbotConnection = RunService.RenderStepped:Connect(function()
+	if not Toggles.TriggerbotToggle.Value then return end
 
-		-- Triggerbot: auto click if enabled
-		if Toggles.TriggerbotToggle.Value then
-			local now = tick()
-			if now - lastTriggerTime >= TRIGGER_COOLDOWN then
-				local target = getClosestPlayerInFOV()
-				if target and isTargetVisible(target) then
-					if Options.TriggerbotMouse.Value == "Mouse1" then
-						mouse1click()
-					else
-						mouse2click()
-					end
-					lastTriggerTime = now
-				end
-			end
+	local now = tick()
+	if now - lastTriggerTime < TRIGGER_COOLDOWN then return end
+
+	local target = getClosestPlayerInFOV()
+	if target and isTargetVisible(target) then
+		local button = Options.TriggerbotMouse.Value
+		if button == "Mouse1" then
+			mouse1click()
+		else
+			mouse2click()
 		end
+		lastTriggerTime = now
 	end
 end)
 
 -- ======================== VISUALS ========================
 local VisualsGroup = Tabs.Visuals:AddLeftGroupbox("Visuals", "eye")
 
--- FOV Circle (ScreenGui) – created only when toggled
-local fovGui = nil
-local fovCircle = nil
+-- FOV Circle (now uses ScreenGui + Frame to avoid Drawing detection)
+local fovGui = Instance.new("ScreenGui")
+fovGui.Name = "FOVCircle"
+fovGui.ResetOnSpawn = false
+fovGui.Parent = game:GetService("CoreGui") -- less suspicious than PlayerGui
 
-local function createFOVCircle()
-	if fovGui then return end
-	fovGui = Instance.new("ScreenGui")
-	fovGui.Name = "FOVCircle"
-	fovGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+local fovFrame = Instance.new("Frame")
+fovFrame.Size = UDim2.new(0, 140, 0, 140)  -- will be updated
+fovFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+fovFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
+fovFrame.BackgroundTransparency = 1
+fovFrame.BorderSizePixel = 0
+fovFrame.Parent = fovGui
 
-	fovCircle = Instance.new("Frame")
-	fovCircle.Size = UDim2.new(0, Options.FOVSlider.Value * 2, 0, Options.FOVSlider.Value * 2)
-	fovCircle.Position = UDim2.new(0.5, -Options.FOVSlider.Value, 0.5, -Options.FOVSlider.Value)
-	fovCircle.BackgroundTransparency = 1
-	fovCircle.BorderSizePixel = 0
-	fovCircle.Visible = false
-	fovCircle.Parent = fovGui
+local fovCorner = Instance.new("UICorner")
+fovCorner.CornerRadius = UDim.new(1, 0)  -- makes it a circle
+fovCorner.Parent = fovFrame
 
-	local circleLine = Instance.new("Frame")
-	circleLine.Size = UDim2.new(1, 0, 1, 0)
-	circleLine.BackgroundTransparency = 0.8
-	circleLine.BorderSizePixel = 2
-	circleLine.BorderColor3 = Options.FOVColor.Value
-	circleLine.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-	circleLine.ClipsDescendants = true
-	circleLine.Parent = fovCircle
-end
+local fovStroke = Instance.new("UIStroke")
+fovStroke.Thickness = 1.5
+fovStroke.Color = Color3.fromRGB(132, 204, 22)
+fovStroke.Parent = fovFrame
 
-local function updateFOVCircle()
-	if not Toggles.FOVToggle.Value then
-		if fovCircle then fovCircle.Visible = false end
-		return
-	end
-	if not fovGui then createFOVCircle() end
-	fovCircle.Visible = true
-	fovCircle.Size = UDim2.new(0, Options.FOVSlider.Value * 2, 0, Options.FOVSlider.Value * 2)
-	fovCircle.Position = UDim2.new(0.5, -Options.FOVSlider.Value, 0.5, -Options.FOVSlider.Value)
-	local line = fovCircle:FindFirstChildOfClass("Frame")
-	if line then line.BorderColor3 = Options.FOVColor.Value end
-end
+fovGui.Enabled = false  -- start hidden
 
 VisualsGroup:AddToggle("FOVToggle", {
 	Text = "Show FOV Circle",
 	Default = false,
 	Tooltip = "Displays the Silent Aim FOV Circle",
 	Callback = function(val)
-		if val then
-			createFOVCircle()
-		elseif fovCircle then
-			fovCircle.Visible = false
-		end
+		fovGui.Enabled = val
 	end
 }):AddColorPicker("FOVColor", {
 	Default = Color3.fromRGB(132, 204, 22),
@@ -239,84 +257,69 @@ VisualsGroup:AddSlider("FOVSlider", {
 	Rounding = 0
 })
 
--- ESP System (BillboardGui)
-local espGuis = {}
-
-local function createESP(player)
-	if espGuis[player] then return end
-	if not player.Character then return end
-	local head = player.Character:FindFirstChild("Head") or player.Character:FindFirstChild("HumanoidRootPart")
-	if not head then return end
-
-	local gui = Instance.new("BillboardGui")
-	gui.Size = UDim2.new(0, 60, 0, 30)
-	gui.Adornee = head
-	gui.AlwaysOnTop = true
-	gui.Parent = player.Character
-
-	local label = Instance.new("TextLabel")
-	label.Size = UDim2.new(1, 0, 1, 0)
-	label.BackgroundTransparency = 1
-	label.Text = player.Name
-	label.TextScaled = true
-	label.Font = Enum.Font.GothamBold
-	label.TextColor3 = isTeamMate(player) and Color3.fromRGB(0, 255, 0) or Options.ESPColor.Value
-	label.Parent = gui
-
-	espGuis[player] = gui
-end
-
-local function updateESP()
-	if not Toggles.ESPToggle.Value then
-		for _, gui in pairs(espGuis) do
-			gui:Destroy()
-		end
-		espGuis = {}
-		return
-	end
-
-	for _, player in ipairs(Players:GetPlayers()) do
-		if player ~= LocalPlayer and player.Character then
-			if not espGuis[player] then
-				createESP(player)
-			end
-			-- update color in case team changed
-			local label = espGuis[player] and espGuis[player]:FindFirstChildOfClass("TextLabel")
-			if label then
-				label.TextColor3 = isTeamMate(player) and Color3.fromRGB(0, 255, 0) or Options.ESPColor.Value
-			end
-		end
-	end
-end
+-- ESP System
+local espHighlights = {}
 
 VisualsGroup:AddToggle("ESPToggle", {
 	Text = "Enable ESP",
 	Default = false,
-	Tooltip = "Shows name tags (Green = Teammate, Red = Enemy)",
-	Callback = function(val)
-		if not val then
-			for _, gui in pairs(espGuis) do
-				gui:Destroy()
-			end
-			espGuis = {}
-		end
-	end
+	Tooltip = "Highlights players (Green = Teammate, Red = Enemy)"
 }):AddColorPicker("ESPColor", {
 	Default = Color3.fromRGB(255, 0, 0),
 	Title = "Enemy Color (override)"
 })
 
--- Clean up ESP on player leaving
-Players.PlayerRemoving:Connect(function(player)
-	if espGuis[player] then
-		espGuis[player]:Destroy()
-		espGuis[player] = nil
+local function updateESP()
+	for _, player in ipairs(Players:GetPlayers()) do
+		if player ~= LocalPlayer and player.Character then
+			if Toggles.ESPToggle.Value then
+				local highlight = espHighlights[player]
+				if not highlight then
+					highlight = Instance.new("Highlight")
+					highlight.FillTransparency = 0.5
+					highlight.OutlineTransparency = 0
+					espHighlights[player] = highlight
+				end
+				highlight.Parent = player.Character
+
+				if isTeamMate(player) then
+					highlight.FillColor = Color3.fromRGB(0, 255, 0)
+					highlight.OutlineColor = Color3.fromRGB(0, 255, 0)
+				else
+					highlight.FillColor = Options.ESPColor.Value
+					highlight.OutlineColor = Options.ESPColor.Value
+				end
+			else
+				if espHighlights[player] then
+					espHighlights[player]:Destroy()
+					espHighlights[player] = nil
+				end
+			end
+		end
 	end
-end)
+end
+
+local function onPlayerRemoving(player)
+	if espHighlights[player] then
+		espHighlights[player]:Destroy()
+		espHighlights[player] = nil
+	end
+end
+
+Players.PlayerRemoving:Connect(onPlayerRemoving)
 
 -- Visuals Render Loop
 local visualsConnection = RunService.RenderStepped:Connect(function()
-	updateFOVCircle()
+	-- Update FOV circle size & color from settings
+	if fovGui.Enabled then
+		local radius = Options.FOVSlider.Value
+		fovFrame.Size = UDim2.new(0, radius*2, 0, radius*2)
+		fovStroke.Color = Options.FOVColor.Value
+		local screenSize = Camera.ViewportSize
+		fovFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
+	else
+		fovGui.Enabled = false
+	end
 	updateESP()
 end)
 
@@ -444,7 +447,7 @@ MenuGroup:AddButton({
 
 Library.ToggleKeybind = Options.MenuKeybind
 
--- Theme & Save managers
+-- Theme & Save managers (folders updated to match new name)
 ThemeManager:SetLibrary(Library)
 SaveManager:SetLibrary(Library)
 SaveManager:IgnoreThemeSettings()
@@ -455,28 +458,38 @@ SaveManager:BuildConfigSection(Tabs["UI Settings"])
 ThemeManager:ApplyToTab(Tabs["UI Settings"])
 SaveManager:LoadAutoloadConfig()
 
+-- Toggle button for mobile/PC
 Library:AddDraggableButton("Open/Close", function()
 	Library:Toggle()
 end, false, 94651747085280, "Left")
 
 -- ======================== CLEANUP ========================
 local connections = {
+	triggerbotConnection,
 	visualsConnection,
 	movementConnection
 }
 
 Library:OnUnload(function()
 	-- Remove FOV GUI
-	if fovGui then fovGui:Destroy() end
+	fovGui:Destroy()
+
 	-- Disconnect all connections
 	for _, conn in ipairs(connections) do
 		if typeof(conn) == "RBXScriptConnection" then
 			conn:Disconnect()
 		end
 	end
-	-- Clear ESP
-	for _, gui in pairs(espGuis) do
-		gui:Destroy()
+
+	-- Clear ESP highlights
+	for _, highlight in pairs(espHighlights) do
+		highlight:Destroy()
 	end
-	espGuis = {}
+	espHighlights = {}
+
+	-- Restore original throw direction if still hooked
+	if hookInfo and KnifeController then
+		KnifeController._GetThrowDirection = hookInfo.old
+		hookInfo = nil
+	end
 end)
