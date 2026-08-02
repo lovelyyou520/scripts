@@ -1,4 +1,4 @@
--- Hardened version – stealth improvements to avoid instant kicks
+
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
@@ -7,11 +7,11 @@ local HttpService = game:GetService("HttpService")
 local LocalPlayer = Players.LocalPlayer
 local Camera = Workspace.CurrentCamera
 
--- Obfuscated URL parts for the UI library (split to evade string scans)
+
 local urlPart1 = "https://raw.githubusercontent.com/deividcomsono/Obsidian/main/"
 local function loadLib(path)
 	local full = urlPart1 .. path
-	-- Use indirect loadstring and HttpGet to bypass common hooks
+
 	local get = game[('\72\116\116\112\71\101\116')] -- "HttpGet"
 	local raw = get(game, full)
 	local loader = getfenv()[('\108\111\97\100\115\116\114\105\110\103')] -- "loadstring"
