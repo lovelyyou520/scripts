@@ -1,1 +1,1071 @@
+local repo = "https://raw.githubusercontent.com/deividcomsono/Obsidian/main/"
+local Library = loadstring(game:HttpGet(repo .. "Library.lua"))()
+local ThemeManager = loadstring(game:HttpGet(repo .. "addons/ThemeManager.lua"))()
+local SaveManager = loadstring(game:HttpGet(repo .. "addons/SaveManager.lua"))()
+local Options = Library.Options
+local Toggles = Library.Toggles
 
+Library.ForceCheckbox = false
+Library.ShowToggleFrameInKeybinds = true
+
+-- Services
+local UserInputService = game:GetService("UserInputService")
+local TweenService     = game:GetService("TweenService")
+local RunService       = game:GetService("RunService")
+local Players          = game:GetService("Players")
+local Lighting         = game:GetService("Lighting")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Player = Players.LocalPlayer
+
+-- Game ID check
+print(game.GameId)
+if game.GameId ~= 372226183 then
+    Library:Notify("Not Supported", 4)
+    return
+end
+
+Library:Notify("Loading...", 4)
+
+-- Create main window
+local Window = Library:CreateWindow({
+    Title = "Fishy",
+    Footer = "Flee the Facility",
+    NotifySide = "Right",
+    ShowCustomCursor = false,
+})
+
+-- Wait for necessary instances
+local TempStats = Player:WaitForChild("TempPlayerStatsModule", 10)
+local RemoteEvent = ReplicatedStorage:WaitForChild("RemoteEvent")
+
+-- Global states
+local autoHack = false
+local autoFreeze = false
+local speed = 16
+local noclip = false
+local noCollision = false
+local fullBright = false
+local invisible = false
+
+-- Highlight toggles
+local highlightMainComputer = false
+local highlightSingleDoor = false
+local highlightPod = false
+local highlightExitDoor = false
+local highlightPlayers = false
+
+-- Material/Texture storage for "Shitty Graphics"
+local savedMaterials = {}
+local savedCastShadows = {}
+local savedTextures = {}
+
+-- Auto-freeze variables
+local freezePods = {}  -- original sizes
+local frozenPods = {}  -- tracking active freezes
+
+-- FPS Booster variables
+local fpsBoosterEnabled = false
+local fpsBoosterStrength = 1  -- default 1 (low)
+
+-- Helper: check if a value is truthy
+local function isTruthy(value)
+    if not value then return false end
+    if value:IsA("ValueBase") then
+        local v = value.Value
+        return v ~= nil and v ~= "" and v ~= false
+    end
+    return true
+end
+
+-- Auto-freeze logic
+local function processFreezePods()
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if not autoFreeze then break end
+        if obj.Name == "FreezePod" then
+            local trigger = obj:FindFirstChild("PodTrigger")
+            if trigger and trigger:IsA("BasePart") then
+                if isTruthy(trigger:FindFirstChild("CapturedTorso")) then
+                    if not freezePods[trigger] then
+                        freezePods[trigger] = trigger.Size
+                    end
+                    trigger.Size = Vector3.new(2000, 2000, 2000)
+                    if not frozenPods[trigger] then
+                        frozenPods[trigger] = true
+                        task.spawn(function()
+                            while autoFreeze and trigger and trigger.Parent do
+                                RemoteEvent:FireServer("Input", "Action", true)
+                                task.wait()
+                            end
+                            if freezePods[trigger] and trigger and trigger.Parent then
+                                trigger.Size = freezePods[trigger]
+                            end
+                            frozenPods[trigger] = nil
+                        end)
+                    end
+                end
+            end
+        end
+    end
+end
+
+local function clearFreezePods()
+    table.clear(frozenPods)
+    for trigger, size in pairs(freezePods) do
+        if trigger and trigger.Parent then
+            trigger.Size = size
+        end
+    end
+    table.clear(freezePods)
+end
+
+local function autoFreezeLoop()
+    task.spawn(function()
+        while autoFreeze do
+            processFreezePods()
+            task.wait()
+        end
+    end)
+end
+
+-- Disable anticheat and detection
+local function disableAnticheat()
+    task.spawn(function()
+        task.wait(0.1)
+        if TempStats then
+            local actionProgress = TempStats:FindFirstChild("ActionProgress")
+            if actionProgress then
+                actionProgress.Value = 1
+            end
+        end
+        for _, obj in ipairs(workspace:GetDescendants()) do
+            if obj:IsA("RemoteEvent") or obj:IsA("RemoteFunction") then
+                if string.find(string.lower(obj.Name), "detect") then
+                    -- (place for potential removal, left empty)
+                end
+            end
+        end
+    end)
+    task.spawn(function()
+        task.wait(0.15)
+        local count = 0
+        for _, obj in ipairs(workspace:GetDescendants()) do
+            if string.find(string.lower(obj.Name), "anticheat") then
+                -- (empty)
+            end
+        end
+        workspace.DescendantAdded:Connect(function(child)
+            task.wait(0.01)
+            if string.find(string.lower(child.Name), "anticheat") then
+                -- (empty)
+            end
+        end)
+    end)
+end
+
+-- Movement functions for auto-hack
+local movementIdx = 0
+local function moveWalk(target, destination)
+    local hum = target.Parent and target.Parent:FindFirstChild("Humanoid")
+    if not hum then
+        target.CFrame = destination
+        return
+    end
+    local dist = (target.Position - destination.Position).Magnitude
+    if dist < 0.5 then
+        target.CFrame = destination
+        return
+    end
+    local step = math.min(10, dist / 3)
+    local steps = math.ceil(dist / step)
+    local direction = (destination.Position - target.Position).Unit
+    for i = 1, steps do
+        if not target.Parent or not autoHack then return end
+        hum:Move(direction, false)
+        task.wait(math.random(10, 25) / 1000)
+        if (target.Position - destination.Position).Magnitude < 1 then break end
+    end
+    hum:Move(Vector3.new(0,0,0), false)
+    task.wait(0.05)
+    target.CFrame = destination
+end
+
+local function moveJump(target, destination)
+    local hum = target.Parent and target.Parent:FindFirstChild("Humanoid")
+    if not hum then
+        target.CFrame = destination
+        return
+    end
+    hum:Move(Vector3.new(0,0,0), false)
+    task.wait(0.05)
+    hum:Jump()
+    task.wait(0.1)
+    target.CFrame = destination
+    task.wait(0.05)
+    hum:Move(Vector3.new(0,0,0), false)
+end
+
+local tweenSpeed = 20
+local function moveTween(target, destination)
+    local hum = target.Parent and target.Parent:FindFirstChild("Humanoid")
+    if not hum then
+        target.CFrame = destination
+        return
+    end
+    local dist = (target.Position - destination.Position).Magnitude
+    local tween = TweenService:Create(target, TweenInfo.new(dist / tweenSpeed, Enum.EasingStyle.Linear), {CFrame = destination})
+    tween:Play()
+    tween.Completed:Wait()
+    target.CFrame = destination
+end
+
+local function moveCharacter(target, destination)
+    movementIdx = movementIdx % 3 + 1
+    if movementIdx == 1 then
+        moveWalk(target, destination)
+    elseif movementIdx == 2 then
+        moveJump(target, destination)
+    else
+        moveTween(target, destination)
+    end
+end
+
+-- Computer trigger ESP / auto-complete
+local computerTriggers = {} -- original sizes stored
+
+local function shrinkComputers()
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj:IsA("BasePart") and string.find(obj.Name, "ComputerTrigger") then
+            obj.Size = Vector3.new(1, 1, 1)
+        end
+    end
+end
+
+local function restoreComputers()
+    for trigger, size in pairs(computerTriggers) do
+        if trigger and trigger.Parent then
+            trigger.Size = size
+        end
+    end
+    table.clear(computerTriggers)
+end
+
+local function shrinkActionSigns()
+    table.clear(computerTriggers)
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj:IsA("BasePart") and not string.find(obj.Name, "ComputerTrigger") then
+            if obj:FindFirstChild("ActionSign") then
+                computerTriggers[obj] = obj.Size
+                obj.Size = Vector3.new(0.1, 0.1, 0.1)
+            end
+        end
+    end
+end
+
+local function isActionValid(trigger)
+    local actionEvent = TempStats and TempStats:FindFirstChild("ActionEvent")
+    local sign = trigger:FindFirstChild("ActionSign")
+    if actionEvent and sign and sign:IsA("ValueBase") then
+        local eventValue = actionEvent.Value
+        local signValue = sign.Value
+        return eventValue ~= nil and signValue ~= nil and (eventValue == signValue or eventValue == eventValue)
+    end
+    return false
+end
+
+local function waitForAction(trigger, timeout)
+    local start = tick()
+    while tick() - start < timeout do
+        if isActionValid(trigger) then return true end
+        task.wait()
+    end
+    return false
+end
+
+local function getActionProgress()
+    local prog = TempStats and TempStats:FindFirstChild("ActionProgress")
+    return prog and prog.Value or 0
+end
+
+local function performAction()
+    task.wait(math.random(50, 150) / 1000)
+    pcall(function() RemoteEvent:FireServer("Input", "Action", true) end)
+    task.wait(math.random(40, 120) / 1000)
+    pcall(function() RemoteEvent:FireServer("SetPlayerMinigameResult", true) end)
+end
+
+local function waitAndComplete(trigger)
+    while autoHack do
+        if getActionProgress() == 0 then
+            task.wait(1.5)
+            if getActionProgress() == 0 then
+                shrinkComputers()
+                break
+            else
+                performAction()
+            end
+        end
+        task.wait(0.15)
+    end
+end
+
+local function autoHackLoop()
+    task.spawn(function()
+        while autoHack do
+            local char = Player.Character
+            if not char then
+                Player.CharacterAdded:Wait()
+                continue
+            end
+            local root = char:WaitForChild("HumanoidRootPart")
+            for _, obj in ipairs(workspace:GetDescendants()) do
+                if not autoHack then break end
+                if obj:IsA("BasePart") and string.find(obj.Name, "ComputerTrigger") then
+                    local sign = obj:FindFirstChild("ActionSign")
+                    if sign and sign.Value == 20 then
+                        local model = obj:FindFirstAncestorOfClass("Model")
+                        if model then
+                            local lightPart = model:FindFirstChild("Neon", true)
+                            if lightPart and lightPart:IsA("BasePart") then
+                                -- (empty check)
+                            end
+                        end
+                        task.wait(0.15)
+                        if not autoHack then break end
+                        moveCharacter(root, obj.CFrame)
+                        task.wait(0.5)
+                        if not autoHack then break end
+                        performAction()
+                        task.wait(1)
+                        if not waitForAction(obj, 1) then
+                            obj.Size = Vector3.new(1, 1, 1)
+                        else
+                            obj.Size = Vector3.new(20000, 20000, 20000)
+                        end
+                        task.wait(2.5)
+                        -- Teleport 100 studs above current position
+                        root.CFrame = root.CFrame + Vector3.new(0, 100, 0)
+                        task.wait(1)
+                        waitAndComplete(obj)
+                    end
+                end
+            end
+            task.wait(1)
+        end
+    end)
+end
+
+-- Teleport to Exit Door function
+local function teleportToExitDoor()
+    local char = Player.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then
+        Library:Notify("Character not found!", 3)
+        return
+    end
+
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj:IsA("Script") and obj.Name == "ExitDoorScript" then
+            local model = obj:FindFirstAncestorWhichIsA("Model")
+            if model then
+                local targetCFrame = model:GetPivot()
+                char.HumanoidRootPart.CFrame = targetCFrame + Vector3.new(0, 3, 2)
+                Library:Notify("Teleported to Exit Door!", 2)
+                return
+            end
+        end
+    end
+    Library:Notify("Exit Door not found!", 3)
+end
+
+-- Highlight functions for ESP
+local function highlightModel(model, color, name)
+    if not model:FindFirstChild(name) then
+        local hl = Instance.new("Highlight")
+        hl.Name = name
+        hl.Adornee = model
+        hl.FillColor = color
+        hl.OutlineColor = color
+        hl.FillTransparency = 0.5
+        hl.OutlineTransparency = 0
+        hl.Parent = model
+    end
+end
+
+local function clearHighlights(name)
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj:IsA("Highlight") and obj.Name == name then
+            obj:Destroy()
+        end
+    end
+end
+
+local function highlightScriptObjects(scriptName, color, highlightName)
+    while highlightName and (scriptName == "MainComputerScript" and highlightMainComputer
+        or scriptName == "SingleDoorScript" and highlightSingleDoor
+        or scriptName == "PodScript" and highlightPod
+        or scriptName == "ExitDoorScript" and highlightExitDoor) do
+        for _, obj in ipairs(workspace:GetDescendants()) do
+            if obj:IsA("Script") and obj.Name == scriptName then
+                local model = obj:FindFirstAncestorWhichIsA("Model")
+                if model then
+                    highlightModel(model, color, highlightName)
+                end
+            end
+        end
+        task.wait(2)
+    end
+    clearHighlights(highlightName)
+end
+
+-- Start/stop anticheat bypass
+local bypassStarted = false
+local Bypass = {}
+function Bypass.Start()
+    if not bypassStarted then
+        bypassStarted = true
+        disableAnticheat()
+        task.wait(0.4)
+    end
+end
+
+function Bypass.Stop()
+    autoHack = false
+end
+
+-- FPS Booster logic
+local function applyFPSBooster(enable, strength)
+    if enable then
+        -- Strength 1 (low): disable particles, smoke, fire, sparkles
+        for _, v in ipairs(workspace:GetDescendants()) do
+            if v:IsA("ParticleEmitter") or v:IsA("Fire") or v:IsA("Smoke") or v:IsA("Sparkles") then
+                v.Enabled = false
+            end
+        end
+        Lighting.GlobalShadows = false
+        Lighting.ShadowSoftness = 0
+        
+        if strength >= 2 then
+            -- Reduce render distance / texture quality
+            settings().Rendering.QualityLevel = 1
+            settings().Rendering.MeshPartDetailLevel = Enum.MeshPartDetailLevel.Level01
+            pcall(function()
+                settings().Rendering.FastGuiRendering = true
+                settings().Rendering.FastTextureRendering = true
+            end)
+        end
+        if strength >= 3 then
+            -- Remove all decals/textures
+            for _, obj in ipairs(workspace:GetDescendants()) do
+                if obj:IsA("Decal") or obj:IsA("Texture") then
+                    obj.Transparency = 0.5
+                end
+            end
+        end
+        if strength >= 4 then
+            -- Turn off all lighting effects
+            Lighting.Ambient = Color3.fromRGB(255,255,255)
+            Lighting.Brightness = 1
+            Lighting.ClockTime = 14
+            Lighting.FogEnd = 100000
+            Lighting.GlobalShadows = false
+        end
+        if strength >= 5 then
+            -- Extreme: remove all non-essential parts transparency
+            for _, obj in ipairs(workspace:GetDescendants()) do
+                if obj:IsA("BasePart") and not obj.Parent:IsA("Model") then
+                    obj.Transparency = 0.3
+                end
+            end
+        end
+    else
+        -- Restore defaults
+        for _, v in ipairs(workspace:GetDescendants()) do
+            if v:IsA("ParticleEmitter") or v:IsA("Fire") or v:IsA("Smoke") or v:IsA("Sparkles") then
+                v.Enabled = true
+            end
+            if v:IsA("Decal") or v:IsA("Texture") then
+                v.Transparency = 0
+            end
+            if v:IsA("BasePart") and not v.Parent:IsA("Model") then
+                v.Transparency = 0
+            end
+        end
+        settings().Rendering.QualityLevel = 10
+        settings().Rendering.MeshPartDetailLevel = Enum.MeshPartDetailLevel.Level04
+        pcall(function()
+            settings().Rendering.FastGuiRendering = false
+            settings().Rendering.FastTextureRendering = false
+        end)
+        Lighting.GlobalShadows = true
+        Lighting.ShadowSoftness = 0.5
+        Lighting.Ambient = Color3.fromRGB(0,0,0)
+    end
+end
+
+-- UI Construction
+local Tabs = {
+    Home = Window:AddTab("Home", "user"),
+    Main = Window:AddTab("Main", "home"),
+    AutoFarm = Window:AddTab("Auto Farm", "bot"),
+    ESP = Window:AddTab("ESP", "eye"),
+    Misc = Window:AddTab("Misc", "settings"),
+    UISettings = Window:AddTab("UI Settings", "wrench"),
+    Keybinds = Window:AddTab("Keybinds", "keyboard"),
+}
+
+local HomeGroup = Tabs.Home:AddLeftGroupbox("Profile Information", "info")
+
+local userId = Player.UserId
+local thumbType = Enum.ThumbnailType.HeadShot
+local thumbSize = Enum.ThumbnailSize.Size420x420
+local content, isReady = Players:GetUserThumbnailAsync(userId, thumbType, thumbSize)
+
+local imageLabel = Instance.new("ImageLabel")
+imageLabel.Size = UDim2.new(1, 0, 0, 150)
+imageLabel.BackgroundTransparency = 1
+imageLabel.Image = content
+imageLabel.ScaleType = Enum.ScaleType.Fit
+imageLabel.Parent = HomeGroup.Container
+HomeGroup:Resize()
+
+HomeGroup:AddDivider()
+
+local executorName = (identifyexecutor and identifyexecutor()) or "Unknown Executor"
+HomeGroup:AddLabel("Executor: " .. executorName)
+HomeGroup:AddLabel("Account Age: " .. tostring(Player.AccountAge) .. " days")
+
+local sessionLabel = HomeGroup:AddLabel("Session Time: 00:00:00")
+local startTime = tick()
+RunService.Heartbeat:Connect(function()
+    local elapsed = tick() - startTime
+    local hours = math.floor(elapsed / 3600)
+    local mins = math.floor((elapsed % 3600) / 60)
+    local secs = math.floor(elapsed % 60)
+    sessionLabel:SetText(string.format("Session Time: %02d:%02d:%02d", hours, mins, secs))
+end)
+
+local MainGroup = Tabs.Main:AddLeftGroupbox("Local Player", "user")
+local VisualGroup = Tabs.Main:AddRightGroupbox("Visual", "eye")
+
+MainGroup:AddSlider("SpeedSlider", {
+    Text = "Walk Speed",
+    Default = 16,
+    Min = 0,
+    Max = 100,
+    Rounding = 0,
+    Callback = function(value)
+        speed = value
+    end
+})
+
+local speedLoop = nil
+MainGroup:AddToggle("SpeedToggle", {
+    Text = "Speed",
+    Default = false,
+    Callback = function(value)
+        if value then
+            speedLoop = RunService.Stepped:Connect(function()
+                local char = Player.Character
+                if char and char:FindFirstChild("Humanoid") then
+                    char.Humanoid.WalkSpeed = speed
+                end
+            end)
+        else
+            if speedLoop then speedLoop:Disconnect(); speedLoop = nil end
+            local char = Player.Character
+            if char and char:FindFirstChild("Humanoid") then
+                char.Humanoid.WalkSpeed = 16
+            end
+        end
+    end
+})
+
+local noclipLoop = nil
+MainGroup:AddToggle("NoclipToggle", {
+    Text = "Noclip",
+    Default = false,
+    Callback = function(value)
+        noclip = value
+        if value then
+            noclipLoop = RunService.Stepped:Connect(function()
+                if Player.Character then
+                    for _, part in ipairs(Player.Character:GetDescendants()) do
+                        if part:IsA("BasePart") then
+                            part.CanCollide = false
+                        end
+                    end
+                end
+            end)
+        else
+            if noclipLoop then noclipLoop:Disconnect(); noclipLoop = nil end
+        end
+    end
+})
+
+-- Invisibility feature
+local invisLoop = nil
+MainGroup:AddToggle("InvisibleToggle", {
+    Text = "Invisibility",
+    Default = false,
+    Callback = function(value)
+        invisible = value
+        if value then
+            invisLoop = RunService.RenderStepped:Connect(function()
+                local char = Player.Character
+                if char then
+                    for _, part in ipairs(char:GetDescendants()) do
+                        if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+                            part.LocalTransparencyModifier = 0.5
+                            part.Transparency = 0.5
+                        elseif part:IsA("Decal") then
+                            part.Transparency = 0.5
+                        end
+                    end
+                end
+            end)
+        else
+            if invisLoop then invisLoop:Disconnect(); invisLoop = nil end
+            local char = Player.Character
+            if char then
+                for _, part in ipairs(char:GetDescendants()) do
+                    if part:IsA("BasePart") then
+                        part.LocalTransparencyModifier = 0
+                        part.Transparency = 0
+                    elseif part:IsA("Decal") then
+                        part.Transparency = 0
+                    end
+                end
+            end
+        end
+    end
+})
+
+MainGroup:AddButton("Teleport to Exit Door", teleportToExitDoor)
+
+VisualGroup:AddToggle("FullBrightToggle", {
+    Text = "Full Bright",
+    Default = false,
+    Callback = function(value)
+        if value then
+            Lighting.Brightness = 2
+            Lighting.ClockTime = 14
+            Lighting.GlobalShadows = false
+            Lighting.Ambient = Color3.fromRGB(255, 255, 255)
+        else
+            Lighting.Brightness = 0
+            Lighting.ClockTime = 14  -- restore defaults
+        end
+    end
+})
+
+VisualGroup:AddToggle("ShittyGraphicsToggle", {
+    Text = "Potato Graphics",
+    Default = false,
+    Callback = function(value)
+        if value then
+            for _, obj in ipairs(workspace:GetDescendants()) do
+                if obj:IsA("BasePart") then
+                    savedMaterials[obj] = obj.Material
+                    savedCastShadows[obj] = obj.CastShadow
+                    obj.Material = Enum.Material.SmoothPlastic
+                    obj.CastShadow = false
+                elseif obj:IsA("Decal") or obj:IsA("Texture") then
+                    savedTextures[obj] = obj.Parent
+                    obj.Parent = nil
+                end
+            end
+        else
+            for obj, mat in pairs(savedMaterials) do
+                if obj and obj.Parent then
+                    obj.Material = mat
+                    obj.CastShadow = savedCastShadows[obj]
+                end
+            end
+            for obj, parent in pairs(savedTextures) do
+                if obj then
+                    obj.Parent = parent
+                end
+            end
+            table.clear(savedMaterials)
+            table.clear(savedCastShadows)
+            table.clear(savedTextures)
+        end
+    end
+})
+
+-- FPS Booster Toggle + Strength Slider
+VisualGroup:AddToggle("FPSBoosterToggle", {
+    Text = "FPS Booster",
+    Default = false,
+    Callback = function(value)
+        fpsBoosterEnabled = value
+        applyFPSBooster(value, fpsBoosterStrength)
+    end
+})
+
+VisualGroup:AddSlider("FPSBoostStrength", {
+    Text = "Boost Strength",
+    Default = 1,
+    Min = 1,
+    Max = 5,
+    Rounding = 0,
+    Callback = function(value)
+        fpsBoosterStrength = value
+        if fpsBoosterEnabled then
+            applyFPSBooster(true, value)
+        end
+    end
+})
+
+-- Soldier ESP (Highlight Players)
+VisualGroup:AddToggle("SoldierESP", {
+    Text = "Soldier ESP",
+    Default = false,
+    Callback = function(value)
+        highlightPlayers = value
+        if value then
+            task.spawn(function()
+                while highlightPlayers do
+                    for _, player in ipairs(Players:GetPlayers()) do
+                        if player ~= Player and player.Character then
+                            local char = player.Character
+                            if not char:FindFirstChild("SoldierHighlight") then
+                                local hl = Instance.new("Highlight")
+                                hl.Name = "SoldierHighlight"
+                                hl.Adornee = char
+                                hl.FillColor = Color3.fromRGB(0, 255, 0)
+                                hl.OutlineColor = Color3.fromRGB(0, 255, 0)
+                                hl.FillTransparency = 0.5
+                                hl.OutlineTransparency = 0
+                                hl.Parent = char
+                            end
+                        end
+                    end
+                    task.wait(0.5)
+                end
+                -- Cleanup
+                for _, obj in ipairs(workspace:GetDescendants()) do
+                    if obj:IsA("Highlight") and obj.Name == "SoldierHighlight" then
+                        obj:Destroy()
+                    end
+                end
+            end)
+        else
+            for _, obj in ipairs(workspace:GetDescendants()) do
+                if obj:IsA("Highlight") and obj.Name == "SoldierHighlight" then
+                    obj:Destroy()
+                end
+            end
+        end
+    end
+})
+
+-- AutoFarm tab (shifted content to left, removed info)
+local AutoFarmToggleGroup = Tabs.AutoFarm:AddLeftGroupbox("Toggles", "toggle-right")
+
+AutoFarmToggleGroup:AddToggle("AutoHackToggle", {
+    Text = "Auto Hack",
+    Default = false,
+    Callback = function(value)
+        autoHack = value
+        if autoHack then
+            Library:Notify("Auto-Hack Activated", 2)
+            shrinkActionSigns()
+            autoHackLoop()
+        else
+            Library:Notify("Auto-Hack Deactivated", 2)
+            shrinkComputers()
+            restoreComputers()
+        end
+    end
+})
+
+AutoFarmToggleGroup:AddButton("Stop Hack", function()
+    if Toggles.AutoHackToggle then
+        Toggles.AutoHackToggle:SetValue(false)
+    end
+    local char = Player.Character
+    if char and char:FindFirstChild("HumanoidRootPart") then
+        local spawnLoc = workspace:FindFirstChildWhichIsA("SpawnLocation", true)
+        if spawnLoc then
+            char.HumanoidRootPart.CFrame = spawnLoc.CFrame + Vector3.new(0, 5, 0)
+        else
+            char.HumanoidRootPart.CFrame = CFrame.new(0, 10, 0)
+        end
+    end
+end)
+
+AutoFarmToggleGroup:AddSlider("TweenSpeedSlider", {
+    Text = "Tween Speed",
+    Default = 20,
+    Min = 5,
+    Max = 100,
+    Rounding = 0,
+    Callback = function(value)
+        tweenSpeed = value
+    end
+})
+
+AutoFarmToggleGroup:AddToggle("AutoFreezeToggle", {
+    Text = "Auto Free",
+    Default = false,
+    Callback = function(value)
+        autoFreeze = value
+        if autoFreeze then
+            Library:Notify("Auto-Free Activated", 2)
+            autoFreezeLoop()
+        else
+            Library:Notify("Auto-Free Deactivated", 2)
+            clearFreezePods()
+        end
+    end
+})
+
+local ESPGroup = Tabs.ESP:AddLeftGroupbox("Highlights", "eye")
+
+ESPGroup:AddToggle("MainComputerToggle", {
+    Text = "Main Computer",
+    Default = false,
+    Callback = function(value)
+        highlightMainComputer = value
+        if value then
+            task.spawn(function() highlightScriptObjects("MainComputerScript", Color3.fromRGB(0, 170, 255), "ModelHighlight") end)
+        else
+            clearHighlights("ModelHighlight")
+        end
+    end
+})
+
+ESPGroup:AddToggle("SingleDoorToggle", {
+    Text = "Single Door",
+    Default = false,
+    Callback = function(value)
+        highlightSingleDoor = value
+        if value then
+            task.spawn(function() highlightScriptObjects("SingleDoorScript", Color3.fromRGB(255, 255, 255), "SingleHighlight") end)
+        else
+            clearHighlights("SingleHighlight")
+        end
+    end
+})
+
+ESPGroup:AddToggle("PodToggle", {
+    Text = "Pod",
+    Default = false,
+    Callback = function(value)
+        highlightPod = value
+        if value then
+            task.spawn(function() highlightScriptObjects("PodScript", Color3.fromRGB(235, 103, 103), "PodHighlight") end)
+        else
+            clearHighlights("PodHighlight")
+        end
+    end
+})
+
+ESPGroup:AddToggle("ExitDoorToggle", {
+    Text = "Exit Door",
+    Default = false,
+    Callback = function(value)
+        highlightExitDoor = value
+        if value then
+            task.spawn(function() highlightScriptObjects("ExitDoorScript", Color3.fromRGB(255, 255, 0), "ExitHighlight") end)
+        else
+            clearHighlights("ExitHighlight")
+        end
+    end
+})
+
+local originalTransparencies = {}
+ESPGroup:AddToggle("XRayToggle", {
+    Text = "X-Ray (Transparent Walls)",
+    Default = false,
+    Callback = function(value)
+        if value then
+            for _, obj in ipairs(workspace:GetDescendants()) do
+                if obj:IsA("BasePart") and obj.Transparency < 0.5 then
+                    if not obj.Parent:FindFirstChild("Humanoid") and obj.Name ~= "HumanoidRootPart" then
+                        originalTransparencies[obj] = obj.Transparency
+                        obj.Transparency = 0.5
+                    end
+                end
+            end
+        else
+            for obj, trans in pairs(originalTransparencies) do
+                if obj and obj.Parent then
+                    obj.Transparency = trans
+                end
+            end
+            table.clear(originalTransparencies)
+        end
+    end
+})
+
+local MiscGroup = Tabs.Misc:AddLeftGroupbox("Other Features", "settings")
+
+local autoMinigame = false
+MiscGroup:AddToggle("AutoMinigameToggle", {
+    Text = "Auto Minigame",
+    Default = false,
+    Callback = function(value)
+        autoMinigame = value
+        if autoMinigame then
+            task.spawn(function()
+                while autoMinigame do
+                    local remote = ReplicatedStorage:FindFirstChild("RemoteEvent")
+                    if remote then
+                        remote:FireServer("SetPlayerMinigameResult", true)
+                    end
+                    task.wait()
+                end
+            end)
+        end
+    end
+})
+
+-- UI Settings
+local MenuGroup = Tabs.UISettings:AddLeftGroupbox("Menu", "wrench")
+MenuGroup:AddToggle("KeybindMenuOpen", { Default = Library.KeybindFrame.Visible, Text = "Open Keybind Menu", Callback = function(value) Library.KeybindFrame.Visible = value end })
+MenuGroup:AddToggle("ShowCustomCursor", { Text = "Custom Cursor", Default = true, Callback = function(Value) Library.ShowCustomCursor = Value end })
+MenuGroup:AddDropdown("NotificationSide", { Values = { "Left", "Right" }, Default = "Right", Text = "Notification Side", Callback = function(Value) Library:SetNotifySide(Value) end })
+MenuGroup:AddDropdown("DPIDropdown", { Values = { "50%", "75%", "100%", "125%", "150%", "175%", "200%" }, Default = "100%", Text = "DPI Scale", Callback = function(Value) Value = Value:gsub("%%", ""); local DPI = tonumber(Value); Library:SetDPIScale(DPI) end })
+MenuGroup:AddDivider()
+MenuGroup:AddLabel("Menu bind"):AddKeyPicker("MenuKeybind", { Default = "RightShift", NoUI = true, Text = "Menu keybind" })
+MenuGroup:AddButton("Unload", function() Library:Unload() end)
+
+Library.ToggleKeybind = Options.MenuKeybind
+
+-- Keybind options for all main features
+local KeybindsGroup = Tabs.Keybinds:AddLeftGroupbox("Feature Keybinds", "keyboard")
+
+KeybindsGroup:AddLabel("Auto Hack"):AddKeyPicker("AutoHackKeybind", { Default = "None", NoUI = false, Text = "Toggle Auto Hack" })
+KeybindsGroup:AddLabel("Speed Toggle"):AddKeyPicker("SpeedKeybind", { Default = "None", NoUI = false, Text = "Toggle Speed" })
+KeybindsGroup:AddLabel("Noclip Toggle"):AddKeyPicker("NoclipKeybind", { Default = "None", NoUI = false, Text = "Toggle Noclip" })
+KeybindsGroup:AddLabel("Invisibility Toggle"):AddKeyPicker("InvisibilityKeybind", { Default = "None", NoUI = false, Text = "Toggle Invisibility" })
+KeybindsGroup:AddLabel("Teleport to Exit Door"):AddKeyPicker("TeleportKeybind", { Default = "None", NoUI = false, Text = "Teleport to Exit" })
+KeybindsGroup:AddLabel("Auto Freeze"):AddKeyPicker("AutoFreezeKeybind", { Default = "None", NoUI = false, Text = "Toggle Auto Freeze" })
+KeybindsGroup:AddLabel("Full Bright"):AddKeyPicker("FullBrightKeybind", { Default = "None", NoUI = false, Text = "Toggle Full Bright" })
+KeybindsGroup:AddLabel("Shitty Graphics"):AddKeyPicker("ShittyGraphicsKeybind", { Default = "None", NoUI = false, Text = "Toggle Shitty Graphics" })
+KeybindsGroup:AddLabel("FPS Booster"):AddKeyPicker("FPSBoosterKeybind", { Default = "None", NoUI = false, Text = "Toggle FPS Booster" })
+KeybindsGroup:AddLabel("Soldier ESP"):AddKeyPicker("SoldierESPKeybind", { Default = "None", NoUI = false, Text = "Toggle Soldier ESP" })
+
+-- Keybind listener
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if UserInputService:GetFocusedTextBox() then return end
+    local key = input.KeyCode
+    if key == Enum.KeyCode.Unknown then return end
+
+    -- Helper to toggle a Toggle object
+    local function toggleOption(optionName)
+        local toggle = Toggles[optionName]
+        if toggle then
+            toggle:SetValue(not toggle.Value)
+        end
+    end
+
+    if Options.AutoHackKeybind and key == Options.AutoHackKeybind then
+        toggleOption("AutoHackToggle")
+    elseif Options.SpeedKeybind and key == Options.SpeedKeybind then
+        toggleOption("SpeedToggle")
+    elseif Options.NoclipKeybind and key == Options.NoclipKeybind then
+        toggleOption("NoclipToggle")
+    elseif Options.InvisibilityKeybind and key == Options.InvisibilityKeybind then
+        toggleOption("InvisibleToggle")
+    elseif Options.TeleportKeybind and key == Options.TeleportKeybind then
+        teleportToExitDoor()
+    elseif Options.AutoFreezeKeybind and key == Options.AutoFreezeKeybind then
+        toggleOption("AutoFreezeToggle")
+    elseif Options.FullBrightKeybind and key == Options.FullBrightKeybind then
+        toggleOption("FullBrightToggle")
+    elseif Options.ShittyGraphicsKeybind and key == Options.ShittyGraphicsKeybind then
+        toggleOption("ShittyGraphicsToggle")
+    elseif Options.FPSBoosterKeybind and key == Options.FPSBoosterKeybind then
+        toggleOption("FPSBoosterToggle")
+    elseif Options.SoldierESPKeybind and key == Options.SoldierESPKeybind then
+        toggleOption("SoldierESP")
+    end
+end)
+
+ThemeManager:SetLibrary(Library)
+SaveManager:SetLibrary(Library)
+SaveManager:IgnoreThemeSettings()
+SaveManager:SetIgnoreIndexes({ "MenuKeybind", "AutoHackKeybind", "SpeedKeybind", "NoclipKeybind", "InvisibilityKeybind", "TeleportKeybind", "AutoFreezeKeybind", "FullBrightKeybind", "ShittyGraphicsKeybind", "FPSBoosterKeybind", "SoldierESPKeybind" })
+ThemeManager:SetFolder("Fishy")
+SaveManager:SetFolder("Fishy/Main")
+SaveManager:BuildConfigSection(Tabs.UISettings)
+ThemeManager:ApplyToTab(Tabs.UISettings)
+SaveManager:LoadAutoloadConfig()
+
+-- Mobile/Screen Toggle Button
+local ToggleGui = Instance.new("ScreenGui")
+ToggleGui.Name = "FishyToggleUI"
+ToggleGui.ResetOnSpawn = false
+ToggleGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+
+local success = pcall(function() ToggleGui.Parent = game:GetService("CoreGui") end)
+if not success then ToggleGui.Parent = Player:WaitForChild("PlayerGui") end
+
+local ToggleBtn = Instance.new("TextButton")
+ToggleBtn.Parent = ToggleGui
+ToggleBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+ToggleBtn.BorderColor3 = Color3.fromRGB(60, 60, 60)
+ToggleBtn.Position = UDim2.new(0, 15, 0.5, -25)
+ToggleBtn.Size = UDim2.new(0, 50, 0, 50)
+ToggleBtn.Font = Enum.Font.SourceSansBold
+ToggleBtn.Text = "Fishy"
+ToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+ToggleBtn.TextSize = 18
+ToggleBtn.BackgroundTransparency = 0.2
+
+local UICorner = Instance.new("UICorner")
+UICorner.CornerRadius = UDim.new(0, 10)
+UICorner.Parent = ToggleBtn
+
+local dragging = false
+local dragInput, dragStart, startPos
+
+ToggleBtn.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true
+        dragStart = input.Position
+        startPos = ToggleBtn.Position
+        
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                dragging = false
+            end
+        end)
+    end
+end)
+
+ToggleBtn.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+        dragInput = input
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if input == dragInput and dragging then
+        local delta = input.Position - dragStart
+        ToggleBtn.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+    end
+end)
+
+ToggleBtn.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        if dragStart and (input.Position - dragStart).Magnitude < 5 then
+            if type(Library.Toggle) == "function" then
+                Library:Toggle()
+            else
+                pcall(function() Library:ToggleUI() end)
+            end
+        end
+    end
+end)
+
+Library:OnUnload(function()
+    if ToggleGui then ToggleGui:Destroy() end
+    print("Fishy Unloaded")
+end)
+
+return Bypass
