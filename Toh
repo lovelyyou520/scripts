@@ -1,70 +1,36 @@
 local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-local Workspace = game:GetService("Workspace")
-local UserInputService = game:GetService("UserInputService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Lighting = game:GetService("Lighting")
 local LP = Players.LocalPlayer
 
-local evadeConfig = {
-    ReviveTimeEnabled = true,
-    ReviveTime = 1.5,
-    ReviveAura = false,
-}
+if game.GameId ~= 703124385 then 
+    task.defer(task.cancel, coroutine.running()) 
+    coroutine.yield() 
+end 
 
-local REQ = {}
-local GameDataInit = false
+local LocalPlayer = Players.LocalPlayer or Players.PlayerAdded:Wait() 
 
-local function initGameData()
-    if GameDataInit then return end
-    GameDataInit = true
-    
-    task.spawn(function()
-        while not (REQ.Contexts and REQ.CharService and REQ.InteractService) do
-            local GCs = getgc(true)
-            for i = 1, #GCs do
-                local v = GCs[i]
-                if type(v) == 'table' then
-                    if rawget(v, 1) and type(v[1]) == 'table' and rawget(v[1], "CollectableIDs") then
-                        REQ.Contexts = v
-                    elseif rawget(v, "GetCharacters") then
-                        REQ.CharService = v
-                    elseif rawget(v, "StartActivate") and rawget(v, "KeyUsed") then
-                        REQ.InteractService = v
-                    end
-                end
-                
-                if REQ.Contexts and REQ.CharService and REQ.InteractService then
-                    break
-                end
-            end
-            task.wait(0.1)
-        end
-        
-        local LowerC = hookfunction or hookfunc
-        if LowerC then
-            pcall(function()
-                local DataReg = require(ReplicatedStorage:WaitForChild("Objects", 9e9):WaitForChild("Game", 9e9):WaitForChild("Character", 9e9):WaitForChild("DataRegistry", 9e9))
-                local oldGet; oldGet = LowerC(DataReg.Get, function(p1, value)
-                    if value == "ReviveLength" and evadeConfig.ReviveTimeEnabled then
-                        return evadeConfig.ReviveTime
-                    end
-                    return oldGet(p1, value)
-                end)
-            end)
+local PlayerScripts = LocalPlayer:FindFirstChildWhichIsA('PlayerScripts') 
+while not PlayerScripts do 
+    LocalPlayer.ChildAdded:Wait() 
+    PlayerScripts = LocalPlayer:FindFirstChildWhichIsA('PlayerScripts') 
+end 
 
-            pcall(function()
-                local oldKey; oldKey = LowerC(REQ.InteractService.KeyUsed, function(p1, p2)
-                    if evadeConfig.ReviveAura and p2.Key == "Interact" and p2.KeyCode == Enum.KeyCode.E then
-                        return nil
-                    end
-                    return oldKey(p1, p2)
-                end)
-            end)
-        end
-    end)
+for _, scriptName in ipairs({'LocalScript', 'LocalScript2'}) do 
+    local v = PlayerScripts:WaitForChild(scriptName) 
+    for _, c in ipairs(getconnections(v.Changed)) do 
+        local f = c.Function 
+        if f and not isexecutorclosure(f) then 
+            c:Disable() 
+        end 
+    end 
+    v.Enabled = false 
 end
-initGameData()
+
+local MarketplaceService = game:GetService("MarketplaceService")
+local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+local UserInputService = game:GetService("UserInputService")
+local Lighting = game:GetService("Lighting")
 
 local repo = "https://raw.githubusercontent.com/deividcomsono/Obsidian/main/"
 local Library = loadstring(game:HttpGet(repo .. "Library.lua"))()
@@ -78,74 +44,103 @@ Library.ShowToggleFrameInKeybinds = true
 
 local Window = Library:CreateWindow({
     Title = "Fishy",
-    Footer = "Evade",
+    Footer = "Tower of Hell",
     NotifySide = "Right",
     ShowCustomCursor = false,
 })
 
 local Tabs = {
-    ["Main"] = Window:AddTab("Main", "user"),
-    ["Visuals"] = Window:AddTab("Visuals", "eye"),
-    ["Game"] = Window:AddTab("Game", "gamepad-2"),
+    ["Player Info"] = Window:AddTab("Player Info", "user"),
+    ["OP"] = Window:AddTab("OP", "KillPart"),
+    ["Teleport"] = Window:AddTab("Teleport", "move"),
+    ["Misc"] = Window:AddTab("Misc", "paperclip"),
     ["UI Settings"] = Window:AddTab("UI Settings", "settings"),
 }
 
-local MovementGroup = Tabs["Main"]:AddLeftGroupbox("Movement", "move")
+-- Player Info
+local information = Tabs["Player Info"]:AddLeftGroupbox("Player", "user")
+local avatarImage = Instance.new("ImageLabel")
+avatarImage.Name = "AvatarThumbnail"
+avatarImage.Size = UDim2.new(0, 220, 0, 220)
+avatarImage.Position = UDim2.new(0.5, -90, 0, 10)
+avatarImage.Image = "rbxassetid://0"
+avatarImage.BackgroundTransparency = 1
+avatarImage.BorderSizePixel = 0
+avatarImage.ScaleType = Enum.ScaleType.Fit
+if information.Container then
+    avatarImage.Parent = information.Container
+elseif information.Frame then
+    avatarImage.Parent = information.Frame
+else
+    avatarImage.Parent = information
+end
 
--- Speed (Infinite Yield Style)
-local speedEnabled = false
-local speedValue = 1
-local speedLoop = nil
-
-MovementGroup:AddToggle("SpeedToggle", { Text = "Enable Speed", Default = false, Callback = function(v) 
-    speedEnabled = v
-    if speedLoop then speedLoop:Disconnect(); speedLoop = nil end
-    if v then
-        speedLoop = RunService.RenderStepped:Connect(function()
-            if not LP.Character then return end
-            local hum = LP.Character:FindFirstChildOfClass("Humanoid")
-            local hrp = LP.Character:FindFirstChild("HumanoidRootPart")
-            if hum and hrp and hum.MoveDirection.Magnitude > 0 then
-                hrp.CFrame = hrp.CFrame + (hum.MoveDirection * speedValue)
-            end
-        end)
+spawn(function()
+    local player = LP
+    if not player then repeat task.wait(0.1) player = Players.LocalPlayer until player end
+    task.wait(1)
+    local success, thumbnail = pcall(function()
+        return Players:GetUserThumbnailAsync(player.UserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size180x180)
+    end)
+    if success and thumbnail then
+        avatarImage.Image = thumbnail
+    else
+        local alternatives = {Enum.ThumbnailType.AvatarThumbnail, Enum.ThumbnailType.AvatarBust, Enum.ThumbnailType.Avatar}
+        for i, thumbnailType in ipairs(alternatives) do
+            local altSuccess, altThumbnail = pcall(function()
+                return Players:GetUserThumbnailAsync(player.UserId, thumbnailType, Enum.ThumbnailSize.Size180x180)
+            end)
+            if altSuccess and altThumbnail then avatarImage.Image = altThumbnail break end
+        end
     end
-end })
+end)
 
-MovementGroup:AddSlider("SpeedSlider", { Text = "Speed Value", Default = 1, Min = 0.1, Max = 10, Rounding = 1, Callback = function(v) 
-    speedValue = v
-end })
+information:AddLabel("Executor : " .. identifyexecutor())
+information:AddLabel("Username : " .. game.Players.LocalPlayer.Name)
+information:AddLabel("User ID : " .. game.Players.LocalPlayer.UserId)
+information:AddLabel("Display Name : " .. game.Players.LocalPlayer.DisplayName)
+information:AddLabel("Account Age : " .. game.Players.LocalPlayer.AccountAge .. " days")
 
--- Fly
+local InfoGroup = Tabs["Player Info"]:AddRightGroupbox("Info", "info")
+local welcomeLabel = InfoGroup:AddLabel({Text = "Welcome to Fishy Hub", DoesWrap = true})
+task.spawn(function()
+    while true do
+        task.wait(0.1)
+        local accentColor = ThemeManager.ThemeData.AccentColor or Color3.fromRGB(137, 180, 250)
+        local fullText = 'Welcome to <font color="#' .. string.format("%02x%02x%02x", math.floor(accentColor.R * 255), math.floor(accentColor.G * 255), math.floor(accentColor.B * 255)) .. '">Fishy </font>'
+        welcomeLabel:SetText(fullText)
+        if Library.Unloaded then break end
+    end
+end)
+
+local DevGroup = Tabs["Player Info"]:AddRightGroupbox("Developer", "user")
+DevGroup:AddLabel("[Fishy] - Owner And Developer")
+
+local CommunityGroup = Tabs["Player Info"]:AddRightGroupbox("Community", "users")
+CommunityGroup:AddButton("Copy Discord Link", function()
+    pcall(function()
+        setclipboard("https://discord.gg/UEwSfApCSF")
+        Library:Notify({Title = "Discord", Description = "Link copied to clipboard", Time = 2})
+    end)
+end)
+
+-- OP
 local flightEnabled = false
 local flightSpeed = 50
 local flightLoop = nil
 
-local function stopFlight()
-    if flightLoop then flightLoop:Disconnect(); flightLoop = nil end
-    local char = LP.Character
-    if char then
-        local humanoid = char:FindFirstChildOfClass("Humanoid")
-        local head = char:FindFirstChild("Head")
-        if humanoid then humanoid.PlatformStand = false end
-        if head then head.Anchored = false end
-    end
-end
-
-local function startFlight()
-    stopFlight()
+function startFlight()
     local char = LP.Character
     if not char then return end
     local humanoid = char:FindFirstChildOfClass("Humanoid")
     local head = char:FindFirstChild("Head")
     if not humanoid or not head then return end
-    
     humanoid.PlatformStand = true
     head.Anchored = true
-    
+    if flightLoop then flightLoop:Disconnect() end
     flightLoop = RunService.Heartbeat:Connect(function(dt)
         if not char or not char.Parent then
-            stopFlight()
+            if flightLoop then flightLoop:Disconnect(); flightLoop = nil end
             return
         end
         local md = humanoid.MoveDirection * (flightSpeed * dt)
@@ -161,410 +156,597 @@ local function startFlight()
     end)
 end
 
-MovementGroup:AddToggle("FlyToggle", { Text = "Enable Fly", Default = false, Callback = function(v) 
+function stopFlight()
+    if flightLoop then flightLoop:Disconnect(); flightLoop = nil end
+    local char = LP.Character
+    if char then
+        local humanoid = char:FindFirstChildOfClass("Humanoid")
+        local head = char:FindFirstChild("Head")
+        if humanoid then humanoid.PlatformStand = false end
+        if head then head.Anchored = false end
+    end
+end
+
+local OPGroup = Tabs["OP"]:AddLeftGroupbox("Fly Settings", "plane")
+local InvincibleGroup = Tabs["OP"]:AddLeftGroupbox("Invincibility", "shield")
+
+local invincibleEnabled = false
+local invincibleConn = nil
+
+InvincibleGroup:AddToggle("InvincibleToggle", { Text = "Enable Invincibility", Default = false, Callback = function(v) 
+    invincibleEnabled = v
+    if v then
+        invincibleConn = RunService.Heartbeat:Connect(function()
+            for _, p in pairs(Workspace:GetDescendants()) do
+                if p:IsA("BasePart") and (p.Name:lower():match("kill") or p.Name:lower():match("lava") or p.Name:lower():match("damage")) then
+                    p.CanTouch = false
+                end
+            end
+        end)
+    else
+        if invincibleConn then invincibleConn:Disconnect() end
+        -- Note: We don't restore CanTouch to true because it might re-enable safe parts, 
+        -- but if you reset/die or a new map loads, it resets naturally.
+    end
+end })
+
+OPGroup:AddToggle("FlyToggle", { Text = "Enable Fly", Default = false, Callback = function(v) 
     flightEnabled = v
     if v then startFlight() else stopFlight() end
 end })
-
-MovementGroup:AddSlider("FlySpeed", { Text = "Fly Speed", Default = 50, Min = 1, Max = 200, Rounding = 0, Callback = function(v) 
+OPGroup:AddSlider("FlySpeed", { Text = "Fly Speed", Default = 50, Min = 1, Max = 200, Rounding = 0, Callback = function(v) 
     flightSpeed = v
 end })
 
--- Infinite Jump (No Cooldown)
-local infJumpConnection = nil
-
-MovementGroup:AddToggle("InfJumpToggle", { Text = "Infinite Jump", Default = false, Callback = function(v) 
-    if infJumpConnection then infJumpConnection:Disconnect(); infJumpConnection = nil end
-    if v then
-        infJumpConnection = UserInputService.JumpRequest:Connect(function()
-            if LP.Character then
-                local hum = LP.Character:FindFirstChildOfClass("Humanoid")
-                if hum then
-                    hum:ChangeState(Enum.HumanoidStateType.Jumping)
-                end
-            end
-        end)
-    end
-end })
-
--- Invisibility (Faint to you, Invisible to others)
-local invisLoop = nil
-MovementGroup:AddToggle("InvisToggle", { Text = "Enable Invisibility", Default = false, Callback = function(v)
-    if v then
-        if LP.Character then
-            -- Make faint to yourself
-            for _, part in ipairs(LP.Character:GetDescendants()) do
-                if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
-                    part.LocalTransparencyModifier = 0.5
-                end
-            end
-            
-            -- Break character weld to prevent replication (Invisible to others)
-            local lowerTorso = LP.Character:FindFirstChild("LowerTorso")
-            if lowerTorso and lowerTorso:FindFirstChild("Root") then
-                lowerTorso.Root:Destroy()
-            end
-            
-            -- Maintain faint look
-            invisLoop = RunService.RenderStepped:Connect(function()
-                if LP.Character then
-                    for _, part in ipairs(LP.Character:GetDescendants()) do
-                        if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
-                            part.LocalTransparencyModifier = 0.5
-                        end
-                    end
-                end
-            end)
-        end
-    else
-        if invisLoop then invisLoop:Disconnect(); invisLoop = nil end
-        -- To fix a broken Root joint, the player must respawn
-        if LP.Character and LP.Character:FindFirstChild("Humanoid") then
-            LP.Character.Humanoid.Health = 0
-            Library:Notify("Invisibility Disabled. Respawning character to fix state.")
-        end
-    end
-end })
-
-MovementGroup:AddDivider()
-
--- Float
 local floatEnabled = false
-local floatPart = nil
 local floatLoop = nil
+local floatDescendSpeed = -2
+local floatAscendSpeed = 25
+local floatMoveSpeed = 30
 
-MovementGroup:AddToggle("FloatToggle", { Text = "Enable Float", Default = false, Callback = function(v) 
-    floatEnabled = v
-    if floatLoop then floatLoop:Disconnect(); floatLoop = nil end
+function startFloat()
+    local char = LP.Character
+    if not char then return end
+    local humanoid = char:FindFirstChildOfClass("Humanoid")
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not humanoid or not hrp then return end
     
-    if v then
-        if not floatPart then
-            floatPart = Instance.new("Part")
-            floatPart.Size = Vector3.new(6, 1, 6)
-            floatPart.Transparency = 1
-            floatPart.Anchored = true
-            floatPart.Parent = Workspace
+    if floatLoop then floatLoop:Disconnect() end
+    
+    local bodyVelocity = Instance.new("BodyVelocity")
+    bodyVelocity.Name = "FloatVelocity"
+    bodyVelocity.MaxForce = Vector3.new(100000, 100000, 100000)
+    bodyVelocity.Velocity = Vector3.new(0, 0, 0)
+    bodyVelocity.Parent = hrp
+    
+    floatLoop = RunService.RenderStepped:Connect(function()
+        if not char or not char.Parent or humanoid.Health <= 0 then
+            stopFloat()
+            return
         end
         
-        floatLoop = RunService.RenderStepped:Connect(function()
-            if LP.Character and LP.Character:FindFirstChild("HumanoidRootPart") and floatPart then
-                floatPart.CFrame = CFrame.new(LP.Character.HumanoidRootPart.Position - Vector3.new(0, 3.5, 0))
-            end
-        end)
-    else
-        if floatPart then floatPart:Destroy(); floatPart = nil end
+        local moveDir = humanoid.MoveDirection
+        local yVelocity = floatDescendSpeed
+        
+        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+            yVelocity = floatAscendSpeed
+        end
+        
+        bodyVelocity.Velocity = (moveDir * floatMoveSpeed) + Vector3.new(0, yVelocity, 0)
+    end)
+end
+
+function stopFloat()
+    if floatLoop then floatLoop:Disconnect(); floatLoop = nil end
+    local char = LP.Character
+    if char then
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            local bv = hrp:FindFirstChild("FloatVelocity")
+            if bv then bv:Destroy() end
+        end
     end
+end
+
+OPGroup:AddToggle("FloatToggle", { Text = "Enable Float", Default = false, Callback = function(v) 
+    floatEnabled = v
+    if v then startFloat() else stopFloat() end
+end })
+OPGroup:AddSlider("FloatSpeed", { Text = "Float Move Speed", Default = 30, Min = 1, Max = 100, Rounding = 0, Callback = function(v) 
+    floatMoveSpeed = v
+end })
+OPGroup:AddSlider("FloatAscendSpeed", { Text = "Float Ascend Speed", Default = 25, Min = 1, Max = 100, Rounding = 0, Callback = function(v) 
+    floatAscendSpeed = v
+end })
+OPGroup:AddSlider("FloatDescendSpeed", { Text = "Float Descend Speed", Default = 2, Min = 0, Max = 50, Rounding = 1, Callback = function(v) 
+    floatDescendSpeed = -v
 end })
 
--- Noclip
+local UtilityGroup = Tabs["OP"]:AddRightGroupbox("Utility", "zap")
+
 local noclipEnabled = false
 local noclipLoop = nil
-MovementGroup:AddToggle("NoclipToggle", { Text = "Enable Noclip", Default = false, Callback = function(v) 
+
+UtilityGroup:AddToggle("NoclipToggle", { Text = "Enable Noclip", Default = false, Callback = function(v) 
     noclipEnabled = v
-    if noclipLoop then noclipLoop:Disconnect(); noclipLoop = nil end
     if v then
         noclipLoop = RunService.Stepped:Connect(function()
             if LP.Character then
-                for _, part in ipairs(LP.Character:GetDescendants()) do
-                    if part:IsA("BasePart") and part.CanCollide then
+                for _, part in pairs(LP.Character:GetDescendants()) do
+                    if part:IsA("BasePart") then
                         part.CanCollide = false
                     end
                 end
             end
         end)
-    end
-end })
-
--- Visuals & Game logic
-local VisualsGroup = Tabs["Visuals"]:AddLeftGroupbox("Visuals", "eye")
-local SettingsGroup = Tabs["Visuals"]:AddRightGroupbox("Settings", "sun")
-
--- Full Bright
-local originalLighting = {
-    Ambient = Lighting.Ambient,
-    OutdoorAmbient = Lighting.OutdoorAmbient,
-    Brightness = Lighting.Brightness,
-    ClockTime = Lighting.ClockTime,
-    FogEnd = Lighting.FogEnd,
-    GlobalShadows = Lighting.GlobalShadows
-}
-
-SettingsGroup:AddToggle("FullBrightToggle", { Text = "Full Bright", Default = false, Callback = function(v) 
-    if v then
-        Lighting.Ambient = Color3.new(1, 1, 1)
-        Lighting.OutdoorAmbient = Color3.new(1, 1, 1)
-        Lighting.Brightness = 2
-        Lighting.ClockTime = 14
-        Lighting.FogEnd = 100000
-        Lighting.GlobalShadows = false
     else
-        Lighting.Ambient = originalLighting.Ambient
-        Lighting.OutdoorAmbient = originalLighting.OutdoorAmbient
-        Lighting.Brightness = originalLighting.Brightness
-        Lighting.ClockTime = originalLighting.ClockTime
-        Lighting.FogEnd = originalLighting.FogEnd
-        Lighting.GlobalShadows = originalLighting.GlobalShadows
+        if noclipLoop then noclipLoop:Disconnect() end
     end
 end })
 
--- No Render
-local voidPart = Instance.new("Part")
-voidPart.Anchored = true
-voidPart.Transparency = 1
+local invisibleEnabled = false
+local originalTransparency = {}
 
-SettingsGroup:AddToggle("NoRenderToggle", { Text = "No Render", Default = false, Callback = function(v) 
-    RunService:Set3dRenderingEnabled(not v)
-    if v then
-        Workspace.CurrentCamera.CameraSubject = voidPart
-    else
-        if LP.Character and LP.Character:FindFirstChild("Humanoid") then
-            Workspace.CurrentCamera.CameraSubject = LP.Character.Humanoid
-        end
-    end
-end })
-
--- X-Ray (See Through Walls)
-local originalTransparencies = {}
-SettingsGroup:AddToggle("XRayToggle", { Text = "X-Ray", Default = false, Callback = function(v)
-    if v then
-        for _, part in ipairs(Workspace:GetDescendants()) do
-            if part:IsA("BasePart") and not part:IsDescendantOf(LP.Character) then
-                -- Store original transparency to revert back later
-                if not originalTransparencies[part] then
-                    originalTransparencies[part] = part.Transparency
-                end
-                -- Make walls mostly transparent
-                part.Transparency = 0.75
-            end
-        end
-    else
-        -- Revert back to original
-        for part, originalTrans in pairs(originalTransparencies) do
-            if part and part.Parent then
-                part.Transparency = originalTrans
-            end
-        end
-        originalTransparencies = {} -- Clear memory
-    end
-end })
-
--- ESP Functions (Always On Top enforced)
-local function createESP(target, name, color, textStr)
-    local highlight = target:FindFirstChild(name)
-    if not highlight then
-        highlight = Instance.new("Highlight")
-        highlight.Name = name
-        highlight.Parent = target
-        highlight.FillColor = color
-        highlight.OutlineColor = color
-        highlight.FillTransparency = 0.5
-        highlight.OutlineTransparency = 0
-        highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop -- See through walls
-    end
-    highlight.FillColor = color
-    highlight.OutlineColor = color
-    highlight.Enabled = true
-
-    if textStr and target:IsA("Model") and target.PrimaryPart then
-        local billboard = target:FindFirstChild(name .. "_BB")
-        if not billboard then
-            billboard = Instance.new("BillboardGui")
-            billboard.Name = name .. "_BB"
-            billboard.Parent = target
-            billboard.Size = UDim2.new(0, 100, 0, 30)
-            billboard.StudsOffset = Vector3.new(0, 3, 0)
-            billboard.AlwaysOnTop = true
-
-            local text = Instance.new("TextLabel")
-            text.Parent = billboard
-            text.Size = UDim2.new(1, 0, 1, 0)
-            text.BackgroundTransparency = 1
-            text.TextColor3 = color
-            text.TextStrokeTransparency = 0
-            text.Font = Enum.Font.SourceSansBold
-            text.TextSize = 14
-        end
-        billboard.TextLabel.Text = textStr
-        billboard.TextLabel.TextColor3 = color
-        billboard.Enabled = true
-    end
-end
-
-local function removeESP(target, name)
-    local highlight = target:FindFirstChild(name)
-    if highlight then highlight.Enabled = false end
-    local billboard = target:FindFirstChild(name .. "_BB")
-    if billboard then billboard.Enabled = false end
-end
-
--- ESP Loops
-local espPlayersEnabled = false
-local espBotsEnabled = false
-local espTicketsEnabled = false
-local espShowText = false
-
-VisualsGroup:AddToggle("ESPShowText", { Text = "Show Text", Default = false, Callback = function(v) 
-    espShowText = v
-end })
-
-local espLoop = RunService.RenderStepped:Connect(function()
-    if not REQ.CharService then return end
-    local chars = REQ.CharService:GetCharacters()
-    
-    -- Players & Bots
-    for _, v in ipairs(chars) do
-        if v.Done and not v.Local and v.Model and v.PrimaryPart then
-            if v.AI then
-                if espBotsEnabled then
-                    createESP(v.Model, "BotESP", Color3.new(1, 0, 0), espShowText and v.Name or nil) -- Red for Bots
+UtilityGroup:AddToggle("InvisibleToggle", { Text = "Enable Invisible", Default = false, Callback = function(v) 
+    invisibleEnabled = v
+    if LP.Character then
+        for _, part in pairs(LP.Character:GetDescendants()) do
+            if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+                if v then
+                    if not originalTransparency[part] then
+                        originalTransparency[part] = part.Transparency
+                    end
+                    part.Transparency = 1
                 else
-                    removeESP(v.Model, "BotESP")
+                    if originalTransparency[part] then
+                        part.Transparency = originalTransparency[part]
+                        originalTransparency[part] = nil
+                    end
                 end
-            else
-                if espPlayersEnabled then
-                    local color = v.State.State == "Downed" and Color3.new(1, 1, 0) or Color3.new(1, 1, 1) -- Yellow for downed, White for normal
-                    createESP(v.Model, "PlayerESP", color, espShowText and v.Name or nil)
+            elseif part:IsA("Decal") then
+                if v then
+                    if not originalTransparency[part] then
+                        originalTransparency[part] = part.Transparency
+                    end
+                    part.Transparency = 1
                 else
-                    removeESP(v.Model, "PlayerESP")
-                end
-            end
-        end
-    end
-
-    -- Tickets
-    if REQ.Contexts then
-        for _, ctx in ipairs(REQ.Contexts) do
-            if type(ctx) == 'table' and ctx.CollectableIDs then
-                for id, collectable in pairs(ctx.CollectableIDs) do
-                    local model = collectable:GetCollectableModel()
-                    if model and model.Parent then
-                        if espTicketsEnabled then
-                            createESP(model, "TicketESP", Color3.new(0, 0.5, 1), espShowText and "Ticket" or nil) -- Light Blue for Tickets
-                        else
-                            removeESP(model, "TicketESP")
-                        end
+                    if originalTransparency[part] then
+                        part.Transparency = originalTransparency[part]
+                        originalTransparency[part] = nil
                     end
                 end
             end
         end
     end
-end)
+end })
 
-VisualsGroup:AddToggle("ESPPlayers", { Text = "ESP Players (White/Yellow)", Default = false, Callback = function(v) espPlayersEnabled = v end })
-VisualsGroup:AddToggle("ESPBots", { Text = "ESP Bots (Red)", Default = false, Callback = function(v) espBotsEnabled = v end })
-VisualsGroup:AddToggle("ESPTickets", { Text = "ESP Tickets (Blue)", Default = false, Callback = function(v) espTicketsEnabled = v end })
-
--- Game / Automation
-local GameGroup = Tabs["Game"]:AddLeftGroupbox("Automation", "gamepad-2")
-
-local safePlatform = nil
-GameGroup:AddButton("Teleport To Safe Spot", function()
-    if LP.Character and LP.Character:FindFirstChild("HumanoidRootPart") then
-        if not safePlatform then
-            safePlatform = Instance.new("Part")
-            safePlatform.Name = "EvadeSafeSpotPlatform"
-            safePlatform.Size = Vector3.new(50, 1, 50)
-            safePlatform.Position = Vector3.new(0, 49995, 0)
-            safePlatform.Anchored = true
-            safePlatform.Transparency = 1
-            safePlatform.Parent = Workspace
+local infJumpEnabled = false
+UserInputService.JumpRequest:Connect(function()
+    if infJumpEnabled and LP.Character then
+        local humanoid = LP.Character:FindFirstChildOfClass("Humanoid")
+        if humanoid then
+            humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
         end
-        LP.Character.HumanoidRootPart.CFrame = CFrame.new(0, 50000, 0)
     end
 end)
 
-local tpDownedEnabled = false
-local tpDownedLoop = nil
-GameGroup:AddToggle("TpDowned", { Text = "Teleport To Downed Player", Default = false, Callback = function(v) 
-    tpDownedEnabled = v
-    if tpDownedLoop then tpDownedLoop:Disconnect(); tpDownedLoop = nil end
+UtilityGroup:AddToggle("InfJumpToggle", { Text = "Infinite Jump", Default = false, Callback = function(v) 
+    infJumpEnabled = v
+end })
+
+local fallProtectEnabled = false
+local fallProtectLoop = nil
+local lastSafePos = nil
+local highestPos = nil
+local isFalling = false
+
+UtilityGroup:AddToggle("FallProtectToggle", { Text = "Fall Protect (30 Studs)", Default = false, Callback = function(v) 
+    fallProtectEnabled = v
     if v then
-        tpDownedLoop = RunService.Heartbeat:Connect(function()
-            if REQ.CharService and LP.Character and LP.Character:FindFirstChild("HumanoidRootPart") then
-                local chars = REQ.CharService:GetCharacters()
-                for _, c in ipairs(chars) do
-                    if type(c) == 'table' and c.Done and not c.Local and c.State.State == "Downed" and c.PrimaryPart then
-                        LP.Character.HumanoidRootPart.CFrame = CFrame.new(c.PrimaryPart.Position)
+        fallProtectLoop = RunService.Heartbeat:Connect(function()
+            local char = LP.Character
+            if not char then return end
+            local hrp = char:FindFirstChild("HumanoidRootPart")
+            local humanoid = char:FindFirstChildOfClass("Humanoid")
+            if not hrp or not humanoid then return end
+
+            local currentState = humanoid:GetState()
+            if currentState == Enum.HumanoidStateType.Freefall then
+                if not isFalling then
+                    isFalling = true
+                    lastSafePos = hrp.CFrame
+                    highestPos = hrp.Position.Y
+                else
+                    if hrp.Position.Y > highestPos then
+                        highestPos = hrp.Position.Y
+                        lastSafePos = hrp.CFrame
+                    elseif highestPos - hrp.Position.Y >= 30 then
+                        -- Teleport back to safe position
+                        hrp.CFrame = lastSafePos
+                        hrp.Velocity = Vector3.new(0, 0, 0)
+                        isFalling = false
+                        highestPos = hrp.Position.Y
+                    end
+                end
+            else
+                isFalling = false
+                if currentState == Enum.HumanoidStateType.Running or currentState == Enum.HumanoidStateType.Landed then
+                    lastSafePos = hrp.CFrame
+                    highestPos = hrp.Position.Y
+                end
+            end
+        end)
+    else
+        if fallProtectLoop then fallProtectLoop:Disconnect(); fallProtectLoop = nil end
+    end
+end })
+
+local ESPGroup = Tabs["OP"]:AddRightGroupbox("ESP Settings", "eye")
+
+local jumpESPEnabled = false
+local jumpHighlight = Instance.new("Highlight")
+jumpHighlight.Name = "JumpESP"
+jumpHighlight.FillTransparency = 1
+jumpHighlight.OutlineColor = Color3.fromRGB(255, 255, 0)
+jumpHighlight.OutlineTransparency = 0
+jumpHighlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+jumpHighlight.Enabled = false
+
+local function setupJumpESP(char)
+    jumpHighlight.Parent = char
+    local hum = char:WaitForChild("Humanoid", 5)
+    if hum then
+        hum.StateChanged:Connect(function(old, new)
+            if not jumpESPEnabled then return end
+            if new == Enum.HumanoidStateType.Jumping or new == Enum.HumanoidStateType.Freefall then
+                jumpHighlight.Enabled = true
+            else
+                jumpHighlight.Enabled = false
+            end
+        end)
+    end
+end
+
+if LP.Character then setupJumpESP(LP.Character) end
+LP.CharacterAdded:Connect(setupJumpESP)
+
+ESPGroup:AddToggle("JumpESPToggle", { Text = "Jump ESP", Default = false, Callback = function(v) 
+    jumpESPEnabled = v
+    if not v then jumpHighlight.Enabled = false end
+end })
+
+local playerESPEnabled = false
+local playerHighlights = {}
+
+local function applyPlayerESP(player)
+    if player == LP then return end
+    local char = player.Character
+    if not char then return end
+    
+    if not playerHighlights[player] then
+        local hl = Instance.new("Highlight")
+        hl.Name = "PlayerESP"
+        hl.FillTransparency = 0.7
+        hl.FillColor = Color3.fromRGB(255, 0, 0)
+        hl.OutlineColor = Color3.fromRGB(255, 255, 255)
+        hl.OutlineTransparency = 0
+        hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+        playerHighlights[player] = hl
+    end
+    
+    playerHighlights[player].Parent = char
+    playerHighlights[player].Enabled = playerESPEnabled
+end
+
+local function removePlayerESP(player)
+    if playerHighlights[player] then
+        playerHighlights[player]:Destroy()
+        playerHighlights[player] = nil
+    end
+end
+
+Players.PlayerAdded:Connect(function(player)
+    player.CharacterAdded:Connect(function()
+        task.wait(0.5)
+        if playerESPEnabled then applyPlayerESP(player) end
+    end)
+end)
+
+Players.PlayerRemoving:Connect(removePlayerESP)
+
+for _, player in ipairs(Players:GetPlayers()) do
+    player.CharacterAdded:Connect(function()
+        task.wait(0.5)
+        if playerESPEnabled then applyPlayerESP(player) end
+    end)
+end
+
+ESPGroup:AddToggle("PlayerESPToggle", { Text = "Player ESP", Default = false, Callback = function(v) 
+    playerESPEnabled = v
+    for _, player in ipairs(Players:GetPlayers()) do
+        if v then
+            applyPlayerESP(player)
+        else
+            if playerHighlights[player] then
+                playerHighlights[player].Enabled = false
+            end
+        end
+    end
+end })
+
+-- Teleport
+local TeleportGroup = Tabs["Teleport"]:AddLeftGroupbox("Locations", "move")
+local CheckpointGroup = Tabs["Teleport"]:AddLeftGroupbox("Checkpoints", "map-pin")
+
+local savedCheckpoint = nil
+local checkpointClone = nil
+
+local function setCheckpoint()
+    local char = LP.Character
+    if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+
+    savedCheckpoint = hrp.CFrame
+
+    if checkpointClone then
+        checkpointClone:Destroy()
+    end
+
+    -- Create a dummy visual clone for client-side ESP
+    char.Archivable = true
+    checkpointClone = char:Clone()
+    char.Archivable = false
+
+    if checkpointClone then
+        -- Clean up unnecessary components
+        for _, obj in pairs(checkpointClone:GetDescendants()) do
+            if obj:IsA("Script") or obj:IsA("LocalScript") or obj:IsA("Sound") or obj:IsA("ProximityPrompt") then
+                obj:Destroy()
+            end
+            if obj:IsA("BasePart") then
+                obj.Anchored = true
+                obj.CanCollide = false
+                obj.Transparency = 0.5 -- Make it look like a ghost
+            end
+        end
+
+        checkpointClone.Parent = Workspace
+        local cloneHrp = checkpointClone:FindFirstChild("HumanoidRootPart")
+        if cloneHrp then
+            cloneHrp.CFrame = savedCheckpoint
+        end
+
+        -- Add ESP Label
+        local head = checkpointClone:FindFirstChild("Head")
+        if head then
+            local billboard = Instance.new("BillboardGui")
+            billboard.Name = "CheckpointESP"
+            billboard.Size = UDim2.new(0, 100, 0, 40)
+            billboard.StudsOffset = Vector3.new(0, 2, 0)
+            billboard.AlwaysOnTop = true
+            billboard.Parent = head
+
+            local label = Instance.new("TextLabel")
+            label.Size = UDim2.new(1, 0, 1, 0)
+            label.BackgroundTransparency = 1
+            label.Text = "Checkpoint"
+            label.TextColor3 = Color3.fromRGB(0, 255, 0)
+            label.TextStrokeTransparency = 0
+            label.TextScaled = true
+            label.Parent = billboard
+        end
+        
+        Library:Notify({Title = "Checkpoint", Description = "Checkpoint saved!", Time = 2})
+    end
+end
+
+local function tpToCheckpoint()
+    if not savedCheckpoint then
+        Library:Notify({Title = "Error", Description = "No checkpoint set!", Time = 2})
+        return
+    end
+
+    local char = LP.Character
+    if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if hrp then
+        hrp.CFrame = savedCheckpoint
+    end
+end
+
+CheckpointGroup:AddButton("Set Checkpoint", function()
+    setCheckpoint()
+end)
+
+CheckpointGroup:AddButton("Teleport to Checkpoint", function()
+    tpToCheckpoint()
+end)
+
+CheckpointGroup:AddLabel("Set Checkpoint Key"):AddKeyPicker("SetCheckpointKey", { Default = "C", NoUI = true, Text = "Set Checkpoint Key", Callback = function()
+    setCheckpoint()
+end })
+
+CheckpointGroup:AddLabel("Teleport Key"):AddKeyPicker("TpCheckpointKey", { Default = "V", NoUI = true, Text = "Teleport Key", Callback = function()
+    tpToCheckpoint()
+end })
+
+CheckpointGroup:AddButton("Clear Checkpoint", function()
+    savedCheckpoint = nil
+    if checkpointClone then
+        checkpointClone:Destroy()
+        checkpointClone = nil
+    end
+    Library:Notify({Title = "Checkpoint", Description = "Checkpoint cleared!", Time = 2})
+end)
+
+TeleportGroup:AddButton("Teleport to End", function()
+    task.spawn(function()
+        local char = LP.Character
+        if not char then return end
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            local finishes = Workspace:FindFirstChild("tower") and Workspace.tower:FindFirstChild("finishes")
+            if finishes then
+                for _, target in ipairs(finishes:GetChildren()) do
+                    if char and hrp and char.Parent then
+                        hrp.CFrame = target:GetPivot() + Vector3.new(0, 3, 0)
+                        task.wait(0.2)
+                    else
                         break
                     end
                 end
             end
-        end)
-    end
-end })
+        end
+    end)
+end)
 
-local autoCollectEnabled = false
-local autoCollectLoop = nil
-GameGroup:AddToggle("AutoCollect", { Text = "Auto Collect Tickets", Default = false, Callback = function(v) 
-    autoCollectEnabled = v
-    if autoCollectLoop then autoCollectLoop:Disconnect(); autoCollectLoop = nil end
-    if v then
-        autoCollectLoop = RunService.Heartbeat:Connect(function()
-            if REQ.Contexts and LP.Character and LP.Character:FindFirstChild("HumanoidRootPart") then
-                for _, ctx in ipairs(REQ.Contexts) do
-                    if type(ctx) == 'table' and ctx.CollectableIDs then
-                        for id, collectable in pairs(ctx.CollectableIDs) do
-                            local pos = collectable.CollectableData.Position
-                            if pos then
-                                LP.Character.HumanoidRootPart.CFrame = CFrame.new(pos)
-                                task.wait(0.5)
-                            end
-                        end
-                    end
-                end
-            end
-        end)
-    end
-end })
+local autoFarmEnabled = false
+local autoFarmInterval = 0
+local autoFarmLoop = nil
 
-local reviveAuraEnabled = false
-local reviveAuraLoop = nil
-GameGroup:AddToggle("ReviveAura", { Text = "Revive Aura", Default = false, Callback = function(v) 
-    evadeConfig.ReviveAura = v
-    reviveAuraEnabled = v
-    if reviveAuraLoop then reviveAuraLoop:Disconnect(); reviveAuraLoop = nil end
-    if v then
-        local REvents = ReplicatedStorage:FindFirstChild("Events")
-        local InteractRE = REvents and REvents:FindFirstChild("Interact")
+local AutoFarmGroup = Tabs["Teleport"]:AddRightGroupbox("Auto Farm", "zap")
+
+local function doAutoFarm()
+    local char = LP.Character
+    if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+
+    local lobbyStop = Workspace:FindFirstChild("tower") 
+        and Workspace.tower:FindFirstChild("sections") 
+        and Workspace.tower.sections:FindFirstChild("lobby") 
+        and Workspace.tower.sections.lobby:FindFirstChild("stop")
         
-        reviveAuraLoop = RunService.Heartbeat:Connect(function()
-            if not InteractRE or not REQ.CharService or not LP.Character or not LP.Character:FindFirstChild("HumanoidRootPart") then return end
-            local hrpPos = LP.Character.HumanoidRootPart.Position
-            local chars = REQ.CharService:GetCharacters()
-            for _, c in ipairs(chars) do
-                if type(c) == 'table' and c.Done and not c.Local and c.State.State == "Downed" and c.PrimaryPart then
-                    if (c.PrimaryPart.Position - hrpPos).Magnitude < 30 then
-                        InteractRE:FireServer("Revive", c.Tag, true)
-                    end
+    if lobbyStop then
+        hrp.CFrame = lobbyStop.CFrame + Vector3.new(0, 10, 0)
+    end
+    
+    task.wait(0.5)
+    
+    local finishes = Workspace:FindFirstChild("tower") and Workspace.tower:FindFirstChild("finishes")
+    if finishes then
+        for _, target in ipairs(finishes:GetChildren()) do
+            if not autoFarmEnabled then break end
+            if char and hrp and char.Parent then
+                hrp.CFrame = target:GetPivot() + Vector3.new(0, 3, 0)
+                task.wait(0.2)
+            else
+                break
+            end
+        end
+    end
+end
+
+AutoFarmGroup:AddToggle("AutoFarmToggle", { Text = "Auto Farm", Default = false, Callback = function(v) 
+    autoFarmEnabled = v
+    if autoFarmEnabled then
+        if autoFarmLoop then task.cancel(autoFarmLoop) end
+        autoFarmLoop = task.spawn(function()
+            while autoFarmEnabled do
+                doAutoFarm()
+                if autoFarmInterval > 0 then
+                    task.wait(autoFarmInterval)
+                else
+                    task.wait(1)
                 end
             end
         end)
+    else
+        if autoFarmLoop then task.cancel(autoFarmLoop); autoFarmLoop = nil end
     end
 end })
 
-GameGroup:AddSlider("ReviveTime", { Text = "Revive Time", Default = 1.5, Min = 1.2, Max = 1.5, Rounding = 2, Callback = function(v) 
-    evadeConfig.ReviveTime = v
+AutoFarmGroup:AddSlider("AutoFarmInterval", { Text = "Cycle Interval (Minutes)", Default = 0, Min = 0, Max = 8, Rounding = 1, Callback = function(v) 
+    autoFarmInterval = v * 60 -- Convert minutes to seconds
 end })
 
-local selfReviveEnabled = false
-local selfReviveLoop = nil
-GameGroup:AddToggle("SelfRevive", { Text = "Self Revive", Default = false, Callback = function(v) 
-    selfReviveEnabled = v
-    if selfReviveLoop then selfReviveLoop:Disconnect(); selfReviveLoop = nil end
+-- Misc
+local ImpersonateGroup = Tabs.Misc:AddLeftGroupbox("Impersonate", "user")
+local JumpGroupMisc = Tabs.Misc:AddLeftGroupbox("Jump Settings", "arrow-up")
+local CameraGroupMisc = Tabs.Misc:AddRightGroupbox("Camera", "camera")
+
+-- Impersonate Logic
+local victimName = "Roblox"
+ImpersonateGroup:AddInput("VictimInput", { Default = "Roblox", Numeric = false, Finished = false, ClearTextOnFocus = true, Text = "Player Username", Tooltip = "Enter the name of the victim to impersonate", Placeholder = "Enter victim name...", Callback = function(Value) victimName = Value end })
+ImpersonateGroup:AddButton({ Text = "Impersonate Player", Func = function() 
+    pcall(function()
+        local victimId = game.Players:GetUserIdFromNameAsync(victimName)
+        if victimId then
+            local humDesc = game.Players:GetHumanoidDescriptionFromUserId(victimId)
+            if LP.Character and LP.Character:FindFirstChild("Humanoid") then
+                LP.Character.Humanoid:ApplyDescription(humDesc)
+            end
+        end
+    end)
+end, DoubleClick = false, Tooltip = "Click to apply victim's name and outfit to your character" })
+
+-- Jump Height Logic
+local customJumpEnabled = false
+local customJumpPower = 50
+
+RunService.RenderStepped:Connect(function()
+    if customJumpEnabled and LP.Character then
+        local humanoid = LP.Character:FindFirstChildOfClass("Humanoid")
+        if humanoid then
+            humanoid.UseJumpPower = true
+            humanoid.JumpPower = customJumpPower
+        end
+    end
+end)
+
+JumpGroupMisc:AddToggle("CustomJumpToggle", { Text = "Enable Jump Height", Default = false, Callback = function(v) 
+    customJumpEnabled = v 
+    if not v and LP.Character then
+        local humanoid = LP.Character:FindFirstChildOfClass("Humanoid")
+        if humanoid then
+            humanoid.UseJumpPower = false
+            humanoid.JumpPower = 50 -- Reset to default jump power
+        end
+    end
+end })
+JumpGroupMisc:AddSlider("JumpHeightSlider", { Text = "Jump Height", Default = 50, Min = 0, Max = 500, Rounding = 0, Callback = function(v) 
+    customJumpPower = v 
+end })
+
+-- Camera Logic
+local freecamEnabled = false
+local freecamSpeed = 1
+local freecamLoop = nil
+
+CameraGroupMisc:AddToggle("FreecamToggle", { Text = "Enable Freecam", Default = false, Callback = function(v) 
+    freecamEnabled = v
+    local cam = Workspace.CurrentCamera
+    local char = LP.Character
     if v then
-        local REvents = ReplicatedStorage:FindFirstChild("Events")
-        local SetPlayerModeRE = REvents and REvents:FindFirstChild("SetPlayerMode")
+        if char and char:FindFirstChild("HumanoidRootPart") then
+            char.HumanoidRootPart.Anchored = true
+        end
+        cam.CameraType = Enum.CameraType.Scriptable
         
-        selfReviveLoop = RunService.Heartbeat:Connect(function()
-            if not SetPlayerModeRE or not REQ.CharService then return end
-            local chars = REQ.CharService:GetCharacters()
-            for _, c in ipairs(chars) do
-                if c.Done and c.Local and c.State.State == "Downed" then
-                    SetPlayerModeRE:FireServer(true)
-                end
-            end
+        freecamLoop = RunService.RenderStepped:Connect(function()
+            local moveVector = Vector3.new(0,0,0)
+            if UserInputService:IsKeyDown(Enum.KeyCode.W) then moveVector = moveVector + Vector3.new(0,0,-1) end
+            if UserInputService:IsKeyDown(Enum.KeyCode.S) then moveVector = moveVector + Vector3.new(0,0,1) end
+            if UserInputService:IsKeyDown(Enum.KeyCode.A) then moveVector = moveVector + Vector3.new(-1,0,0) end
+            if UserInputService:IsKeyDown(Enum.KeyCode.D) then moveVector = moveVector + Vector3.new(1,0,0) end
+            if UserInputService:IsKeyDown(Enum.KeyCode.E) then moveVector = moveVector + Vector3.new(0,1,0) end
+            if UserInputService:IsKeyDown(Enum.KeyCode.Q) then moveVector = moveVector + Vector3.new(0,-1,0) end
+            
+            cam.CFrame = cam.CFrame * CFrame.new(moveVector * freecamSpeed)
         end)
+    else
+        if freecamLoop then freecamLoop:Disconnect() end
+        cam.CameraType = Enum.CameraType.Custom
+        cam.CameraSubject = char and char:FindFirstChild("Humanoid")
+        if char and char:FindFirstChild("HumanoidRootPart") then
+            char.HumanoidRootPart.Anchored = false
+        end
     end
+end })
+
+CameraGroupMisc:AddSlider("FreecamSpeed", { Text = "Freecam Speed", Default = 1, Min = 0.1, Max = 10, Rounding = 1, Callback = function(v) 
+    freecamSpeed = v 
 end })
 
 -- UI Settings
@@ -582,91 +764,14 @@ ThemeManager:SetLibrary(Library)
 SaveManager:SetLibrary(Library)
 SaveManager:IgnoreThemeSettings()
 SaveManager:SetIgnoreIndexes({ "MenuKeybind" })
-ThemeManager:SetFolder("FishyHub")
-SaveManager:SetFolder("FishyHub/Evade")
+ThemeManager:SetFolder("MyScriptHub")
+SaveManager:SetFolder("MyScriptHub/specific-game")
+SaveManager:SetSubFolder("specific-place")
 SaveManager:BuildConfigSection(Tabs["UI Settings"])
 ThemeManager:ApplyToTab(Tabs["UI Settings"])
 SaveManager:LoadAutoloadConfig()
-
--- Mobile/Screen Toggle Button
-local ToggleGui = Instance.new("ScreenGui")
-ToggleGui.Name = "FishyToggleUI"
-ToggleGui.ResetOnSpawn = false
-ToggleGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-
-local success = pcall(function() ToggleGui.Parent = game:GetService("CoreGui") end)
-if not success then ToggleGui.Parent = LP:WaitForChild("PlayerGui") end
-
-local ToggleBtn = Instance.new("TextButton")
-ToggleBtn.Parent = ToggleGui
-ToggleBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-ToggleBtn.BorderColor3 = Color3.fromRGB(60, 60, 60)
-ToggleBtn.Position = UDim2.new(0, 15, 0.5, -25)
-ToggleBtn.Size = UDim2.new(0, 50, 0, 50)
-ToggleBtn.Font = Enum.Font.SourceSansBold
-ToggleBtn.Text = "Fishy"
-ToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-ToggleBtn.TextSize = 18
-ToggleBtn.BackgroundTransparency = 0.2
-
-local UICorner = Instance.new("UICorner")
-UICorner.CornerRadius = UDim.new(0, 10)
-UICorner.Parent = ToggleBtn
-
-local dragging = false
-local dragInput, dragStart, startPos
-
-ToggleBtn.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        dragging = true
-        dragStart = input.Position
-        startPos = ToggleBtn.Position
-        
-        input.Changed:Connect(function()
-            if input.UserInputState == Enum.UserInputState.End then
-                dragging = false
-            end
-        end)
-    end
-end)
-
-ToggleBtn.InputChanged:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
-        dragInput = input
-    end
-end)
-
-UserInputService.InputChanged:Connect(function(input)
-    if input == dragInput and dragging then
-        local delta = input.Position - dragStart
-        ToggleBtn.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-    end
-end)
-
-ToggleBtn.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        if dragStart and (input.Position - dragStart).Magnitude < 5 then
-            if type(Library.Toggle) == "function" then
-                Library:Toggle()
-            else
-                pcall(function() Library:ToggleUI() end)
-            end
-        end
-    end
-end)
+Library:OnUnload(function() print("Unloaded!") end)
 
 Library:OnUnload(function()
-    if ToggleGui then ToggleGui:Destroy() end
-    if safePlatform then safePlatform:Destroy() end
-    if infJumpConnection then infJumpConnection:Disconnect() end
-    if invisLoop then invisLoop:Disconnect() end
-    
-    -- Restore X-Ray transparencies on unload
-    for part, trans in pairs(originalTransparencies) do
-        if part and part.Parent then
-            part.Transparency = trans
-        end
-    end
-    
     print("Fishy Unloaded")
 end)
