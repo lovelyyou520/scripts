@@ -410,7 +410,7 @@ local function UpdateXRay()
     end
 end
 
-CamGroup:AddToggle("XRayToggle", { Text = "Enable X-Ray", Default = false, Callback = function(v) XRayEnabled = v; UpdateXRay() end })
+CamGroup:AddToggle("XRayToggle", { Text = "Enable X-Ray (might be dtc)", Default = false, Callback = function(v) XRayEnabled = v; UpdateXRay() end })
 CamGroup:AddSlider("XRaySlider", { Text = "X-Ray Transparency", Default = 50, Min = 0, Max = 100, Rounding = 0, Callback = function(v) XRayTransparency = v / 100; if XRayEnabled then UpdateXRay() end end })
 
 local function GetCorners(cf, sz)
