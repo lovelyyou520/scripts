@@ -1,0 +1,687 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local HttpService = game:GetService("HttpService")
+local TeleportService = game:GetService("TeleportService")
+local VirtualUser = game:GetService("VirtualUser")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+local UserInputService = game:GetService("UserInputService")
+local CoreGui = game:GetService("CoreGui")
+local TweenService = game:GetService("TweenService")
+
+local LP = Players.LocalPlayer or Players.PlayerAdded:Wait()
+
+-- ── Countdown UI Setup ─────────────────────────────────────────────
+local countdownGui = Instance.new("ScreenGui")
+countdownGui.Name = "MVS_Countdown"
+countdownGui.IgnoreGuiInset = true
+countdownGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+
+local successGui = pcall(function() 
+    countdownGui.Parent = CoreGui 
+end)
+if not successGui then
+    countdownGui.Parent = LP:WaitForChild("PlayerGui")
+end
+
+-- Main Background Frame
+local mainFrame = Instance.new("Frame")
+mainFrame.Size = UDim2.new(0, 350, 0, 140)
+mainFrame.Position = UDim2.new(0.5, -175, 0.5, -70)
+mainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+mainFrame.BackgroundTransparency = 0.1
+mainFrame.Parent = countdownGui
+
+local uiCorner = Instance.new("UICorner")
+uiCorner.CornerRadius = UDim.new(0, 10)
+uiCorner.Parent = mainFrame
+
+local uiStroke = Instance.new("UIStroke")
+uiStroke.Color = Color3.fromRGB(80, 130, 255)
+uiStroke.Thickness = 2
+uiStroke.Transparency = 0.3
+uiStroke.Parent = mainFrame
+
+-- Title Text
+local titleText = Instance.new("TextLabel")
+titleText.Size = UDim2.new(1, 0, 0, 40)
+titleText.Position = UDim2.new(0, 0, 0, 10)
+titleText.BackgroundTransparency = 1
+titleText.Font = Enum.Font.GothamBlack
+titleText.TextSize = 22
+titleText.TextColor3 = Color3.fromRGB(255, 255, 255)
+titleText.Text = "Fishy Hub"
+titleText.Parent = mainFrame
+
+-- Countdown Text
+local countdownText = Instance.new("TextLabel")
+countdownText.Size = UDim2.new(1, 0, 0, 30)
+countdownText.Position = UDim2.new(0, 0, 0, 45)
+countdownText.BackgroundTransparency = 1
+countdownText.Font = Enum.Font.GothamSemibold
+countdownText.TextSize = 16
+countdownText.TextColor3 = Color3.fromRGB(200, 200, 200)
+countdownText.Text = "Loading Script: 10s"
+countdownText.Parent = mainFrame
+
+-- Loading Bar Background
+local barBg = Instance.new("Frame")
+barBg.Size = UDim2.new(0, 280, 0, 8)
+barBg.Position = UDim2.new(0.5, -140, 0, 95)
+barBg.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+barBg.BorderSizePixel = 0
+barBg.Parent = mainFrame
+
+local barBgCorner = Instance.new("UICorner")
+barBgCorner.CornerRadius = UDim.new(1, 0)
+barBgCorner.Parent = barBg
+
+-- Loading Bar Fill
+local barFill = Instance.new("Frame")
+barFill.Size = UDim2.new(0, 0, 1, 0)
+barFill.BackgroundColor3 = Color3.fromRGB(80, 130, 255)
+barFill.BorderSizePixel = 0
+barFill.Parent = barBg
+
+local barFillCorner = Instance.new("UICorner")
+barFillCorner.CornerRadius = UDim.new(1, 0)
+barFillCorner.Parent = barFill
+
+-- Run the countdown asynchronously so it doesn't block loading
+task.spawn(function()
+    -- Tween the bar to fill up over 10 seconds
+    local fillTweenInfo = TweenInfo.new(10, Enum.EasingStyle.Linear)
+    local fillTween = TweenService:Create(barFill, fillTweenInfo, {Size = UDim2.new(1, 0, 1, 0)})
+    fillTween:Play()
+
+    for i = 10, 1, -1 do
+        if countdownText and countdownText.Parent then
+            countdownText.Text = "Loading UI: " .. i .. "s"
+        end
+        task.wait(1)
+    end
+    
+    if countdownText and countdownText.Parent then
+        countdownText.Text = "Loading Complete!"
+        countdownText.TextColor3 = Color3.fromRGB(100, 255, 100)
+        uiStroke.Color = Color3.fromRGB(100, 255, 100)
+        barFill.BackgroundColor3 = Color3.fromRGB(100, 255, 100)
+        task.wait(0.6)
+        
+        -- Fade everything out smoothly
+        local fadeInfo = TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+        TweenService:Create(mainFrame, fadeInfo, {BackgroundTransparency = 1}):Play()
+        TweenService:Create(uiStroke, fadeInfo, {Transparency = 1}):Play()
+        TweenService:Create(titleText, fadeInfo, {TextTransparency = 1}):Play()
+        TweenService:Create(countdownText, fadeInfo, {TextTransparency = 1}):Play()
+        TweenService:Create(barBg, fadeInfo, {BackgroundTransparency = 1}):Play()
+        TweenService:Create(barFill, fadeInfo, {BackgroundTransparency = 1}):Play()
+        
+        task.wait(0.5)
+    end
+    countdownGui:Destroy()
+end)
+
+-- ── Game Variables & Remotes ───────────────────────────────────────
+local BuyCase
+
+pcall(function()
+    BuyCase = ReplicatedStorage:WaitForChild("Remotes", 10):WaitForChild("BuyCase", 10)
+end)
+if not BuyCase then warn("BuyCase remote not found – shop features disabled.") end
+
+-- ── Load Obsidian UI Framework ─────────────────────────────────────
+local repo = "https://raw.githubusercontent.com/deividcomsono/Obsidian/main/"
+local Library, ThemeManager, SaveManager
+
+local success, err = pcall(function()
+    Library = loadstring(game:HttpGet(repo .. "Library.lua"))()
+    ThemeManager = loadstring(game:HttpGet(repo .. "addons/ThemeManager.lua"))()
+    SaveManager = loadstring(game:HttpGet(repo .. "addons/SaveManager.lua"))()
+end)
+if not success then
+    warn("UI load error:", err)
+    game:GetService("StarterGui"):SetCore("SendNotification", { Title = "UI Error"; Text = tostring(err); Duration = 10 })
+    return
+end
+
+local Options = Library.Options
+local Toggles = Library.Toggles
+
+Library.ForceCheckbox = false
+Library.ShowToggleFrameInKeybinds = true
+
+local Window = Library:CreateWindow({
+    Title = "[DUELS] MvS",
+    Footer = "Fishy Hub",
+    NotifySide = "Right",
+    ShowCustomCursor = false,
+})
+
+local Tabs = {
+    Main = Window:AddTab("Main", "swords"),
+    Shop = Window:AddTab("Shop", "shopping-cart"),
+    Misc = Window:AddTab("Misc", "paperclip"),
+    UISettings = Window:AddTab("UI Settings", "settings"),
+}
+
+-- ── Helpers ────────────────────────────────────────────────────────
+local function GetTeamFolder(targetPlayer)
+    local rg = Workspace:FindFirstChild("RunningGames")
+    if not rg then return nil end
+    for _, gf in ipairs(rg:GetChildren()) do
+        local ap = gf:FindFirstChild("AlivePlayers")
+        if ap then
+            for _, tf in ipairs(ap:GetChildren()) do
+                for _, pv in ipairs(tf:GetChildren()) do
+                    if pv:IsA("StringValue") then
+                        local userId = tonumber(pv.Value)
+                        if userId and userId == targetPlayer.UserId then return tf end
+                    end
+                end
+            end
+        end
+    end
+    return nil
+end
+
+local function GetTeamColor(tf)
+    if not tf then return Color3.fromRGB(255,255,255) end
+    local n = tf.Name:lower()
+    if n:find("red")    then return Color3.fromRGB(255,50,50)   end
+    if n:find("blue")   then return Color3.fromRGB(50,50,255)   end
+    if n:find("green")  then return Color3.fromRGB(50,255,50)   end
+    if n:find("yellow") then return Color3.fromRGB(255,255,50)  end
+    if n:find("purple") then return Color3.fromRGB(150,50,255)  end
+    if n:find("orange") then return Color3.fromRGB(255,150,50)  end
+    if n:find("pink")   then return Color3.fromRGB(255,100,200) end
+    return Color3.fromRGB(255,255,255)
+end
+
+local function DoServerHop()
+    local req = (syn and syn.request) or (http and http.request) or http_request or (fluxus and fluxus.request) or request
+    if not req then return end
+    pcall(function()
+        local res = req({
+            Url = "https://games.roblox.com/v1/games/" .. game.PlaceId .. "/servers/Public?sortOrder=Asc&limit=100",
+            Method = "GET"
+        })
+        if not res or not res.Body then return end
+        local data = HttpService:JSONDecode(res.Body)
+        if not (data and data.data) then return end
+        table.sort(data.data, function(a,b) return (tonumber(a.playing) or 0) > (tonumber(b.playing) or 0) end)
+        for _, v in ipairs(data.data) do
+            if type(v) == "table" and tonumber(v.playing) and tonumber(v.maxPlayers) then
+                if v.playing < v.maxPlayers and v.id ~= game.JobId then
+                    TeleportService:TeleportToPlaceInstance(game.PlaceId, v.id, LP)
+                    break
+                end
+            end
+        end
+    end)
+end
+
+-- ── Main Tab: Auto Farm & Combat ───────────────────────────────────
+local FarmGroup = Tabs.Main:AddLeftGroupbox("Auto Farm")
+local afEnabled, autoServerHop = false, false
+
+local function getKnife(lp)
+    local char = lp.Character
+    if char then
+        for _, t in ipairs(char:GetChildren()) do
+            if t:IsA("Tool") and t:FindFirstChild("ActivateThrowing") then return t end
+        end
+    end
+    local bp = lp:FindFirstChild("Backpack")
+    if bp then
+        for _, t in ipairs(bp:GetChildren()) do
+            if t:IsA("Tool") and t:FindFirstChild("ActivateThrowing") then return t end
+        end
+    end
+end
+
+local function getTarget(myTeam)
+    local parent = myTeam.Parent
+    if not parent then return nil end
+    for _, tf in ipairs(parent:GetChildren()) do
+        if tf ~= myTeam then
+            for _, pv in ipairs(tf:GetChildren()) do
+                if pv:IsA("StringValue") then
+                    local userId = tonumber(pv.Value)
+                    if userId then
+                        local p = Players:GetPlayerByUserId(userId)
+                        if p and p.Character and p.Character:FindFirstChild("HumanoidRootPart")
+                           and p.Character:FindFirstChild("Humanoid") and p.Character.Humanoid.Health > 0 then
+                            return p
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return nil
+end
+
+FarmGroup:AddToggle("AutoFarmToggle", { Text = "1v1 Auto Farm", Default = false, Callback = function(v) afEnabled = v end })
+FarmGroup:AddToggle("AutoHopToggle", { Text = "Auto Server Hop", Default = false, Callback = function(v) autoServerHop = v end })
+
+task.spawn(function()
+    local rotation = 0
+    while true do
+        if Library.Unloaded then break end
+        if not afEnabled then
+            rotation = 0; task.wait(0.5)
+        else
+            local lp = LP
+            local c = lp.Character
+            if c and c:FindFirstChild("HumanoidRootPart") and c:FindFirstChild("Humanoid") then
+                local hrp = c.HumanoidRootPart
+                local myT = GetTeamFolder(lp)
+                if myT then
+                    local t = getTarget(myT)
+                    if t and t.Character and t.Character:FindFirstChild("HumanoidRootPart") then
+                        local eHrp = t.Character.HumanoidRootPart
+                        rotation = rotation + 2.5
+                        hrp.CFrame = CFrame.new(eHrp.Position) * CFrame.Angles(0, math.rad(rotation), 0) * CFrame.new(4, 0, 0)
+                        hrp.CFrame = CFrame.new(hrp.Position, eHrp.Position)
+                        local k = getKnife(lp)
+                        if k then
+                            if k.Parent ~= c then c.Humanoid:EquipTool(k) end
+                            pcall(function() k:Activate() end)
+                        end
+                    end
+                else
+                    local tPad, currPad, nextPad = nil, false, nil
+                    local pz = Workspace:FindFirstChild("PadZones")
+                    if pz then
+                        for _, zName in ipairs({"PadZone1", "PadZone5"}) do
+                            local z = pz:FindFirstChild(zName)
+                            if z then
+                                local p1, p2 = z:FindFirstChild("Pad1"), z:FindFirstChild("Pad2")
+                                if p1 and p2 and p1:FindFirstChild("PlayersOnPad") and p2:FindFirstChild("PlayersOnPad") then
+                                    local c1, c2 = #p1.PlayersOnPad:GetChildren(), #p2.PlayersOnPad:GetChildren()
+                                    local on1, on2 = false, false
+                                    for _, v in ipairs(p1.PlayersOnPad:GetChildren()) do
+                                        if v.Name == lp.Name or tostring(v.Value) == lp.Name or tostring(v.Value) == tostring(lp.UserId) then on1 = true end
+                                    end
+                                    for _, v in ipairs(p2.PlayersOnPad:GetChildren()) do
+                                        if v.Name == lp.Name or tostring(v.Value) == lp.Name or tostring(v.Value) == tostring(lp.UserId) then on2 = true end
+                                    end
+                                    if on1 or on2 then
+                                        currPad = true
+                                        if c1 > 0 and c2 > 0 then tPad = "w" end
+                                    else
+                                        if c1 > 0 and c2 == 0 then nextPad = p2 elseif c2 > 0 and c1 == 0 then nextPad = p1 end
+                                    end
+                                end
+                            end
+                        end
+                    end
+                    if tPad ~= "w" then if nextPad then tPad = nextPad elseif currPad then tPad = "w" end end
+                    if tPad and tPad ~= "w" then
+                        local targetPart = tPad:FindFirstChild("Pad") or tPad
+                        if targetPart:IsA("BasePart") or targetPart:IsA("Model") then hrp.CFrame = targetPart:GetPivot() * CFrame.new(0, 3, 0) end
+                    end
+                    if autoServerHop and not tPad then task.wait(300); if autoServerHop and not Library.Unloaded then DoServerHop() end end
+                end
+            end
+            task.wait()
+        end
+    end
+end)
+
+local CombatGroup = Tabs.Main:AddLeftGroupbox("Combat: Hitbox")
+local HitboxEnabled, HitboxTeamCheck, HitboxSize, HitboxTransparency = false, false, 50, 0.7
+
+CombatGroup:AddToggle("HitboxToggle", { Text = "Enable Hitbox Expander", Default = false, Callback = function(v) 
+    HitboxEnabled = v
+    if not v then
+        for _, pl in ipairs(Players:GetPlayers()) do
+            local hrp = pl.Character and pl.Character:FindFirstChild("HumanoidRootPart")
+            if hrp then hrp.Size = Vector3.new(2,2,1); hrp.Transparency = 1 end
+        end
+    end
+end })
+CombatGroup:AddToggle("HitboxTeamCheck", { Text = "Team Check (Hitbox)", Default = false, Callback = function(v) HitboxTeamCheck = v end })
+CombatGroup:AddSlider("HitboxSizeSlider", { Text = "Hitbox Size", Default = 50, Min = 1, Max = 100, Rounding = 0, Callback = function(v) HitboxSize = v end })
+CombatGroup:AddSlider("HitboxTransSlider", { Text = "Hitbox Transparency", Default = 70, Min = 0, Max = 100, Rounding = 0, Callback = function(v) HitboxTransparency = v/100 end })
+
+task.spawn(function()
+    while true do
+        if Library.Unloaded then break end
+        if HitboxEnabled then
+            local lp = LP
+            local myTeam = GetTeamFolder(lp)
+            for _, pl in ipairs(Players:GetPlayers()) do
+                if pl ~= lp then
+                    local hrp = pl.Character and pl.Character:FindFirstChild("HumanoidRootPart")
+                    if hrp then
+                        local expand = true
+                        if HitboxTeamCheck and myTeam and GetTeamFolder(pl) == myTeam then expand = false end
+                        if expand then
+                            hrp.Size = Vector3.new(HitboxSize, HitboxSize, HitboxSize)
+                            hrp.Transparency = HitboxTransparency; hrp.BrickColor = BrickColor.new("White"); hrp.Material = Enum.Material.Neon; hrp.CanCollide = false
+                        else hrp.Size = Vector3.new(2,2,1); hrp.Transparency = 1 end
+                    end
+                end
+            end
+        end
+        task.wait(0.1)
+    end
+end)
+
+-- ── Main Tab: ESP & Camera ─────────────────────────────────────────
+local ESPGroup = Tabs.Main:AddRightGroupbox("Visuals: ESP")
+local EspEnabled, HighlightEnabled, JumpESPEnabled, EspTeamCheck, TracersEnabled = false, false, false, false, false
+local ESP_Cache, Highlight_Cache = {}, {}
+
+ESPGroup:AddToggle("HighlightESPToggle", { Text = "Player ESP (Through Walls)", Default = false, Callback = function(v) 
+    HighlightEnabled = v; if not v then for _, hl in pairs(Highlight_Cache) do hl.Enabled = false end end
+end })
+ESPGroup:AddToggle("JumpESPToggle", { Text = "Jump ESP (Yellow Border)", Default = false, Callback = function(v) JumpESPEnabled = v end })
+ESPGroup:AddToggle("BoxESPToggle", { Text = "Box ESP", Default = false, Callback = function(v) 
+    EspEnabled = v; if not v then for _, d in pairs(ESP_Cache) do for _, l in ipairs(d.Lines) do l.Visible = false end; for _, q in ipairs(d.Quads) do q.Visible = false end end end
+end })
+ESPGroup:AddToggle("TracersToggle", { Text = "Look Tracers", Default = false, Callback = function(v) 
+    TracersEnabled = v; if not v then for _, d in pairs(ESP_Cache) do if d.Tracer then d.Tracer.Visible = false end end end
+end })
+ESPGroup:AddToggle("ESPTeamCheck", { Text = "Team Check (ESP)", Default = false, Callback = function(v) EspTeamCheck = v end })
+
+local CamGroup = Tabs.Main:AddRightGroupbox("Visuals: Camera & X-Ray")
+CamGroup:AddSlider("FOVSlider", { Text = "Field of View", Default = 70, Min = 70, Max = 120, Rounding = 0, Callback = function(v) Workspace.CurrentCamera.FieldOfView = v end })
+
+local XRayEnabled, XRayTransparency = false, 0.5
+local OriginalTransparencies = {}
+
+local function applyXRayToPart(part)
+    if not part:IsA("BasePart") or part:IsDescendantOf(Workspace.CurrentCamera) then return end
+    local isChar = false
+    for _, p in ipairs(Players:GetPlayers()) do if p.Character and part:IsDescendantOf(p.Character) then isChar = true end end
+    if not isChar then
+        if not OriginalTransparencies[part] then OriginalTransparencies[part] = part.Transparency end
+        part.Transparency = XRayTransparency
+    end
+end
+
+local function UpdateXRay()
+    if XRayEnabled then for _, obj in ipairs(Workspace:GetDescendants()) do applyXRayToPart(obj) end else
+        for part, trans in pairs(OriginalTransparencies) do if part and part.Parent then part.Transparency = trans end end
+        table.clear(OriginalTransparencies)
+    end
+end
+
+CamGroup:AddToggle("XRayToggle", { Text = "Enable X-Ray", Default = false, Callback = function(v) XRayEnabled = v; UpdateXRay() end })
+CamGroup:AddSlider("XRaySlider", { Text = "X-Ray Transparency", Default = 50, Min = 0, Max = 100, Rounding = 0, Callback = function(v) XRayTransparency = v / 100; if XRayEnabled then UpdateXRay() end end })
+
+local function GetCorners(cf, sz)
+    local h = sz/2; local Corners = {}
+    for X = -1,1,2 do for Y = -1,1,2 do for Z = -1,1,2 do Corners[#Corners+1] = (cf * CFrame.new(h * Vector3.new(X,Y,Z))).Position end end end
+    return Corners
+end
+
+Players.PlayerRemoving:Connect(function(pl)
+    local d = ESP_Cache[pl]
+    if d then for _, l in ipairs(d.Lines) do l:Remove() end; for _, q in ipairs(d.Quads) do q:Remove() end; if d.Tracer then d.Tracer:Remove() end; ESP_Cache[pl] = nil end
+    if Highlight_Cache[pl] then Highlight_Cache[pl]:Destroy(); Highlight_Cache[pl] = nil end
+end)
+
+RunService.RenderStepped:Connect(function()
+    if Library.Unloaded then return end
+    local lp = LP
+    local myTeam = GetTeamFolder(lp)
+    local cam = Workspace.CurrentCamera
+    
+    for _, Player in ipairs(Players:GetPlayers()) do
+        if Player ~= lp then
+            local validChar = Player.Character and Player.Character:FindFirstChild("HumanoidRootPart") and Player.Character:FindFirstChild("Humanoid") and Player.Character.Humanoid.Health > 0
+            local pTeam = GetTeamFolder(Player)
+            local col = GetTeamColor(pTeam)
+            local isTeammate = (EspTeamCheck and myTeam and pTeam == myTeam)
+
+            if HighlightEnabled and validChar and not isTeammate then
+                local hl = Highlight_Cache[Player]
+                if not hl then hl = Instance.new("Highlight"); hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop; hl.FillTransparency = 0.5; hl.OutlineTransparency = 0; Highlight_Cache[Player] = hl end
+                hl.Parent = Player.Character; hl.Enabled = true; hl.FillColor = col
+                if JumpESPEnabled then
+                    local state = Player.Character.Humanoid:GetState()
+                    hl.OutlineColor = (state == Enum.HumanoidStateType.Freefall or state == Enum.HumanoidStateType.Jumping) and Color3.fromRGB(255, 255, 0) or Color3.fromRGB(255, 255, 255)
+                else hl.OutlineColor = Color3.fromRGB(255, 255, 255) end
+            else if Highlight_Cache[Player] then Highlight_Cache[Player].Enabled = false end end
+
+            if EspEnabled or TracersEnabled then
+                if not ESP_Cache[Player] then
+                    local d = { Lines = {}, Quads = {} }
+                    for i = 1, 12 do local l = Drawing.new("Line"); l.Thickness=1; l.Transparency=1; l.ZIndex=1; d.Lines[i]=l end
+                    for i = 1, 6 do local q = Drawing.new("Quad"); q.Thickness=0.5; q.Transparency=0.25; q.ZIndex=1; q.Filled=true; d.Quads[i]=q end
+                    local tr = Drawing.new("Line"); tr.Thickness=1; tr.Transparency=1; tr.ZIndex=1; d.Tracer=tr
+                    ESP_Cache[Player] = d
+                end
+                
+                local d = ESP_Cache[Player]
+                local showBox = EspEnabled and validChar and not isTeammate
+                local showTracer = TracersEnabled and validChar and not isTeammate
+
+                if showBox then
+                    local hrp = Player.Character.HumanoidRootPart
+                    local verts = GetCorners(hrp.CFrame * CFrame.new(0,-0.5,0), Vector3.new(3,5,3))
+                    local sp, anyVis = {}, false
+                    for i=1,8 do local p,v=cam:WorldToViewportPoint(verts[i]); sp[i]=Vector2.new(p.X,p.Y); if v then anyVis=true end end
+                    if anyVis then
+                        local edges = {{1,2},{2,6},{6,5},{5,1},{1,3},{2,4},{6,8},{5,7},{3,4},{4,8},{8,7},{7,3}}
+                        for i,e in ipairs(edges) do d.Lines[i].From=sp[e[1]]; d.Lines[i].To=sp[e[2]]; d.Lines[i].Color=col; d.Lines[i].Visible=true end
+                        local faces = {{1,2,6,5},{2,4,8,6},{1,2,4,3},{1,5,7,3},{5,7,8,6},{3,4,8,7}}
+                        for i,f in ipairs(faces) do d.Quads[i].PointA=sp[f[1]]; d.Quads[i].PointB=sp[f[2]]; d.Quads[i].PointC=sp[f[3]]; d.Quads[i].PointD=sp[f[4]]; d.Quads[i].Color=col; d.Quads[i].Visible=true end
+                    else for _,l in ipairs(d.Lines) do l.Visible=false end; for _,q in ipairs(d.Quads) do q.Visible=false end end
+                else for _,l in ipairs(d.Lines) do l.Visible=false end; for _,q in ipairs(d.Quads) do q.Visible=false end end
+
+                if showTracer then
+                    local head = Player.Character:FindFirstChild("Head")
+                    if head then
+                        local hp, onSc = cam:WorldToViewportPoint(head.Position)
+                        if onSc then
+                            d.Tracer.From = Vector2.new(hp.X, hp.Y)
+                            local myHrp = lp.Character and lp.Character:FindFirstChild("HumanoidRootPart")
+                            if myHrp and Player.Character:FindFirstChild("HumanoidRootPart") then
+                                d.Tracer.Thickness = math.clamp(100/(myHrp.Position - Player.Character.HumanoidRootPart.Position).Magnitude, 0.1, 3)
+                            end
+                            local dp, dv = cam:WorldToViewportPoint(head.CFrame:ToWorldSpace(CFrame.new(0,0,-15)).Position)
+                            if dv then d.Tracer.To=Vector2.new(dp.X,dp.Y); d.Tracer.Color=col; d.Tracer.Visible=true else d.Tracer.Visible=false end
+                        else d.Tracer.Visible=false end
+                    else d.Tracer.Visible=false end
+                else d.Tracer.Visible=false end
+            end
+        end
+    end
+end)
+
+-- ── Shop Tab ───────────────────────────────────────────────────────
+local KnivesGroup = Tabs.Shop:AddLeftGroupbox("Knives & Guns")
+local aKnife1, aKnife2, aGun1, aGun2 = false, false, false, false
+
+KnivesGroup:AddToggle("aKnife1", { Text = "Auto Buy Knife Box #1", Default = false, Callback = function(v) aKnife1=v end })
+KnivesGroup:AddToggle("aKnife2", { Text = "Auto Buy Knife Box #2", Default = false, Callback = function(v) aKnife2=v end })
+KnivesGroup:AddButton({ Text = "Buy Knife Box #1 Once", Func = function() pcall(function() if BuyCase then BuyCase:InvokeServer("Knife Box #1") end end) end })
+KnivesGroup:AddButton({ Text = "Buy Knife Box #2 Once", Func = function() pcall(function() if BuyCase then BuyCase:InvokeServer("Knife Box #2") end end) end })
+KnivesGroup:AddDivider()
+KnivesGroup:AddToggle("aGun1", { Text = "Auto Buy Gun Box #1", Default = false, Callback = function(v) aGun1=v end })
+KnivesGroup:AddToggle("aGun2", { Text = "Auto Buy Gun Box #2", Default = false, Callback = function(v) aGun2=v end })
+KnivesGroup:AddButton({ Text = "Buy Gun Box #1 Once", Func = function() pcall(function() if BuyCase then BuyCase:InvokeServer("Gun Box #1") end end) end })
+KnivesGroup:AddButton({ Text = "Buy Gun Box #2 Once", Func = function() pcall(function() if BuyCase then BuyCase:InvokeServer("Gun Box #2") end end) end })
+
+local MythicsGroup = Tabs.Shop:AddRightGroupbox("Mythics & Config")
+local aMyth1, aMyth2, aMyth3, aMyth4, buyDelay = false, false, false, false, 1
+
+MythicsGroup:AddToggle("aMyth1", { Text = "Auto Buy Mythic Box #1", Default = false, Callback = function(v) aMyth1=v end })
+MythicsGroup:AddToggle("aMyth2", { Text = "Auto Buy Mythic Box #2", Default = false, Callback = function(v) aMyth2=v end })
+MythicsGroup:AddToggle("aMyth3", { Text = "Auto Buy Mythic Box #3", Default = false, Callback = function(v) aMyth3=v end })
+MythicsGroup:AddToggle("aMyth4", { Text = "Auto Buy Mythic Box #4", Default = false, Callback = function(v) aMyth4=v end })
+MythicsGroup:AddDivider()
+MythicsGroup:AddSlider("BuyDelay", { Text = "Auto Buy Delay (s)", Default = 1, Min = 1, Max = 10, Rounding = 1, Callback = function(v) buyDelay = v end })
+
+task.spawn(function()
+    while true do
+        if Library.Unloaded then break end
+        if BuyCase then
+            pcall(function()
+                if aKnife1 then BuyCase:InvokeServer("Knife Box #1") end
+                if aKnife2 then BuyCase:InvokeServer("Knife Box #2") end
+                if aGun1   then BuyCase:InvokeServer("Gun Box #1")   end
+                if aGun2   then BuyCase:InvokeServer("Gun Box #2")   end
+                if aMyth1  then BuyCase:InvokeServer("Mythic Box #1") end
+                if aMyth2  then BuyCase:InvokeServer("Mythic Box #2") end
+                if aMyth3  then BuyCase:InvokeServer("Mythic Box #3") end
+                if aMyth4  then BuyCase:InvokeServer("Mythic Box #4") end
+            end)
+        end
+        task.wait(buyDelay)
+    end
+end)
+
+-- ── Misc Tab ───────────────────────────────────────────────────────
+local UtilGroup = Tabs.Misc:AddLeftGroupbox("Utility")
+local antiAfkConn
+
+UtilGroup:AddButton({ Text = "Server Hop", Tooltip = "Teleports to a different server", Func = function() DoServerHop() end })
+UtilGroup:AddToggle("AntiAFK", { Text = "Anti-AFK", Default = false, Callback = function(v) 
+    if v then
+        antiAfkConn = LP.Idled:Connect(function()
+            VirtualUser:Button2Down(Vector2.new(0,0), Workspace.CurrentCamera.CFrame)
+            task.wait(1)
+            VirtualUser:Button2Up(Vector2.new(0,0), Workspace.CurrentCamera.CFrame)
+        end)
+    else
+        if antiAfkConn then antiAfkConn:Disconnect(); antiAfkConn = nil end
+    end
+end })
+
+UtilGroup:AddButton({ Text = "Collect All Easter Eggs", Tooltip = "Teleports to every egg", Func = function() 
+    local hrp = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+    local eggHunt = Workspace:FindFirstChild("EggHunt")
+    if eggHunt then
+        for _, folder in ipairs(eggHunt:GetChildren()) do
+            for _, egg in ipairs(folder:GetChildren()) do
+                if egg:IsA("MeshPart") or egg:IsA("BasePart") then hrp.CFrame = egg.CFrame; task.wait(0.15) end
+            end
+        end
+        Library:Notify({Title = "Easter Eggs", Description = "All eggs collected!", Time = 3})
+    end
+end })
+
+-- Movement Group
+local MovementGroup = Tabs.Misc:AddRightGroupbox("Movement")
+local SpeedEnabled, SpeedValue = false, 50
+local FlyEnabled, FlySpeed = false, 50
+local FlyBody, FlyGyro
+
+local function CleanupFly()
+    if FlyBody then FlyBody:Destroy(); FlyBody = nil end
+    if FlyGyro then FlyGyro:Destroy(); FlyGyro = nil end
+    if LP.Character and LP.Character:FindFirstChild("Humanoid") then
+        LP.Character.Humanoid.PlatformStand = false
+    end
+end
+
+local function SetupFly()
+    local char = LP.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then return end
+    CleanupFly()
+    
+    local hrp = char.HumanoidRootPart
+    FlyBody = Instance.new("BodyVelocity")
+    FlyBody.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+    FlyBody.Velocity = Vector3.new(0, 0, 0)
+    FlyBody.Parent = hrp
+    
+    FlyGyro = Instance.new("BodyGyro")
+    FlyGyro.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
+    FlyGyro.P = 10000
+    FlyGyro.CFrame = hrp.CFrame
+    FlyGyro.Parent = hrp
+    
+    char.Humanoid.PlatformStand = true
+end
+
+MovementGroup:AddToggle("SpeedToggle", { Text = "Walk Speed", Default = false, Callback = function(v) SpeedEnabled = v end })
+MovementGroup:AddSlider("SpeedSlider", { Text = "Speed Value", Default = 50, Min = 16, Max = 300, Rounding = 0, Callback = function(v) SpeedValue = v end })
+MovementGroup:AddDivider()
+MovementGroup:AddToggle("FlyToggle", { Text = "Enable Fly", Default = false, Callback = function(v) 
+    FlyEnabled = v 
+    if not v then CleanupFly() else SetupFly() end
+end })
+MovementGroup:AddSlider("FlySlider", { Text = "Fly Speed", Default = 50, Min = 10, Max = 300, Rounding = 0, Callback = function(v) FlySpeed = v end })
+
+LP.CharacterAdded:Connect(function()
+    if FlyEnabled then
+        task.wait(0.5)
+        SetupFly()
+    end
+end)
+
+RunService.RenderStepped:Connect(function(deltaTime)
+    if Library.Unloaded then return end
+    local char = LP.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") or not char:FindFirstChild("Humanoid") then return end
+    
+    local hrp = char.HumanoidRootPart
+    local hum = char.Humanoid
+    local cam = Workspace.CurrentCamera
+    
+    -- IY Speed bypass logic
+    if SpeedEnabled and not FlyEnabled then
+        if hum.MoveDirection.Magnitude > 0 then
+            hrp.CFrame = hrp.CFrame + (hum.MoveDirection * (SpeedValue * deltaTime))
+        end
+    end
+    
+    -- Fly control logic
+    if FlyEnabled and FlyBody and FlyGyro then
+        local moveDir = Vector3.new(0,0,0)
+        if UserInputService:IsKeyDown(Enum.KeyCode.W) then moveDir = moveDir + cam.CFrame.LookVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.S) then moveDir = moveDir - cam.CFrame.LookVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.A) then moveDir = moveDir - cam.CFrame.RightVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.D) then moveDir = moveDir + cam.CFrame.RightVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then moveDir = moveDir + Vector3.new(0, 1, 0) end
+        if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then moveDir = moveDir - Vector3.new(0, 1, 0) end
+        
+        if moveDir.Magnitude > 0 then moveDir = moveDir.Unit end
+        FlyBody.Velocity = moveDir * FlySpeed
+        FlyGyro.CFrame = cam.CFrame
+    end
+end)
+
+-- ── UI Settings ────────────────────────────────────────────────────
+local MenuGroup = Tabs.UISettings:AddLeftGroupbox("Menu", "wrench")
+MenuGroup:AddToggle("KeybindMenuOpen", { Default = Library.KeybindFrame.Visible, Text = "Open Keybind Menu", Callback = function(value) Library.KeybindFrame.Visible = value end })
+MenuGroup:AddToggle("ShowCustomCursor", { Text = "Custom Cursor", Default = false, Callback = function(Value) Library.ShowCustomCursor = Value end })
+MenuGroup:AddDropdown("NotificationSide", { Values = { "Left", "Right" }, Default = "Right", Text = "Notification Side", Callback = function(Value) Library:SetNotifySide(Value) end })
+MenuGroup:AddDropdown("DPIDropdown", { Values = { "50%", "75%", "100%", "125%", "150%", "175%", "200%" }, Default = "100%", Text = "DPI Scale", Callback = function(Value) 
+    Library:SetDPIScale(tonumber((Value:gsub("%%", ""))))
+end })
+MenuGroup:AddDivider()
+MenuGroup:AddLabel("Menu bind"):AddKeyPicker("MenuKeybind", { Default = "RightShift", NoUI = true, Text = "Menu keybind" })
+MenuGroup:AddButton("Unload", function() Library:Unload() end)
+
+Library.ToggleKeybind = Options.MenuKeybind
+ThemeManager:SetLibrary(Library)
+SaveManager:SetLibrary(Library)
+SaveManager:IgnoreThemeSettings()
+SaveManager:SetIgnoreIndexes({ "MenuKeybind" })
+ThemeManager:SetFolder("MVS_Script_Hub")
+SaveManager:SetFolder("MVS_Script_Hub/MurderersVSSheriffs")
+SaveManager:BuildConfigSection(Tabs.UISettings)
+ThemeManager:ApplyToTab(Tabs.UISettings)
+SaveManager:LoadAutoloadConfig()
+
+Library:OnUnload(function()
+    print("Fishy Hub Unloaded!")
+    if antiAfkConn then antiAfkConn:Disconnect() end
+    CleanupFly()
+    for _, d in pairs(ESP_Cache) do
+        for _, l in ipairs(d.Lines) do l:Remove() end
+        for _, q in ipairs(d.Quads) do q:Remove() end
+        if d.Tracer then d.Tracer:Remove() end
+    end
+    for _, hl in pairs(Highlight_Cache) do hl:Destroy() end
+    for part, trans in pairs(OriginalTransparencies) do if part and part.Parent then part.Transparency = trans end end
+end)
