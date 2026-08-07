@@ -1,0 +1,973 @@
+-- Cleanup previous instances
+if getgenv().OneTapLoaded then
+    pcall(function() getgenv().OneTapLoaded:Destroy() end)
+end
+if getgenv().OT_Rayfield_Window then
+    pcall(function() getgenv().OT_Rayfield_Window:Destroy() end)
+end
+
+-- Disconnect any previous loops
+local loopNames = {"OT_AimLoop", "OT_ESPLoop", "OT_TriggerLoop", "OT_FOVLoop", "OT_ThirdLoop", "OT_SpeedLoop"}
+for _, name in ipairs(loopNames) do
+    if getgenv()[name] then
+        pcall(function() getgenv()[name]:Disconnect() end)
+        getgenv()[name] = nil
+    end
+end
+
+-- Services
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local ContextActionService = game:GetService("ContextActionService")
+local CollectionService = game:GetService("CollectionService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+
+-- Default configuration
+local defaultConfig = {
+    aimEnabled = false,
+    aimHoldKey = Enum.KeyCode.E,
+    aimPart = "Head",
+    aimFov = 60,
+    aimSmooth = 25,
+    aimWallCheck = false,
+    silentAim = false,
+    triggerbot = false,
+    noRecoil = false,
+    fastReload = false,
+    fastFire = false,
+    infiniteAmmo = false,
+    hitboxExpand = false,
+    hitboxExpandMultiplier = 2,  -- slider multiplier (1-5)
+    espEnabled = false,
+    espName = false,
+    espHealth = false,
+    espDistance = false,
+    chams = false,
+    fovCircle = false,
+    thirdPerson = false,
+    speedBoost = false,
+    walkSpeed = 16,
+    jumpBoost = false,
+    jumpPower = 50,
+    infiniteJump = false,
+    antiAfk = false,
+    autoDeploy = false,
+    autoVote = false,
+    autoReinject = false,
+}
+
+local OT_cfg = getgenv().OT_cfg or {}
+for k, v in pairs(defaultConfig) do
+    if OT_cfg[k] == nil then
+        OT_cfg[k] = v
+    end
+end
+getgenv().OT_cfg = OT_cfg
+
+
+local WeaponManager = require(ReplicatedStorage.Common.Managers.WeaponManager)
+local KillEffectManager = require(ReplicatedStorage.Common.Managers.KillEffectManager)
+local NametagManager = require(ReplicatedStorage.Common.Managers.NametagManager)
+local CharacterManager = require(ReplicatedStorage.Common.Managers.CharacterManager)
+local InventoryPackets = require(ReplicatedStorage.Common.Packets.InventoryPackets)
+local MainGamePackets = require(ReplicatedStorage.Common.Packets.MainGamePackets)
+local ViewmodelClient = require(LocalPlayer.PlayerScripts.Start.Game.ViewmodelClient)
+local WeaponClient = require(LocalPlayer.PlayerScripts.Start.Game.WeaponClient)
+local DataClient = require(LocalPlayer.PlayerScripts.Start.Backend.DataClient)
+local Data = DataClient.waitData()
+
+
+local OT_Snapshot = getgenv().OT_Snapshot or {
+    primaryWeapon = Data.Data.primaryWeapon,
+    secondaryWeapon = Data.Data.secondaryWeapon,
+    currentKnife = Data.Data.currentKnife,
+    killEffect = Data.Data.killEffect,
+    nametag = Data.Data.nametag
+}
+getgenv().OT_Snapshot = OT_Snapshot
+
+
+if not CharacterManager.__OT_hooked then
+    local origGetPrimary = CharacterManager.getPrimary
+    local origGetSecondary = CharacterManager.getSecondary
+    local origGetKnife = CharacterManager.getKnife
+
+    CharacterManager.getPrimary = function(self, ...)
+        if OT_Snapshot.primaryWeapon then return OT_Snapshot.primaryWeapon end
+        return origGetPrimary(self, ...)
+    end
+    CharacterManager.getSecondary = function(self, ...)
+        if OT_Snapshot.secondaryWeapon then return OT_Snapshot.secondaryWeapon end
+        return origGetSecondary(self, ...)
+    end
+    CharacterManager.getKnife = function(self, ...)
+        if OT_Snapshot.currentKnife then return OT_Snapshot.currentKnife end
+        return origGetKnife(self, ...)
+    end
+    CharacterManager.__OT_hooked = true
+end
+
+-- Helper to fire Data changed listeners
+local function fireDataChanged(key, value, oldValue)
+    pcall(function()
+        Data.changed_listeners:Fire("Set", {key}, value, oldValue)
+    end)
+end
+
+
+local attributeMap = {
+    primaryWeapon = "primaryWeapon",
+    secondaryWeapon = "secondaryWeapon",
+    currentKnife = "knifeName",
+    killEffect = "killEffect",
+    nametag = "nametag"
+}
+
+
+local function updateDataAndCharacter(key, value)
+    local old = Data.Data[key]
+    Data.Data[key] = value
+    OT_Snapshot[key] = value
+    fireDataChanged(key, value, old)
+
+    local char = LocalPlayer.Character
+    if char and attributeMap[key] then
+        pcall(function() char:SetAttribute(attributeMap[key], value) end)
+    end
+
+    if char then
+        local currentWeapon = char:GetAttribute("currentWeapon") or "Primary"
+        local needsRefresh = false
+        if key == "primaryWeapon" and currentWeapon == "Primary" then needsRefresh = true
+        elseif key == "secondaryWeapon" and currentWeapon == "Secondary" then needsRefresh = true
+        elseif key == "currentKnife" and currentWeapon == "Knife" then needsRefresh = true
+        end
+        if needsRefresh then
+            pcall(function()
+                ViewmodelClient.destroyCurrentWeapon()
+                ViewmodelClient.startViewmodel(value, currentWeapon == "Knife" or nil)
+            end)
+        end
+    end
+end
+
+-- Hook packet sends for equip actions to update snapshot
+local equipPackets = {
+    ["equipPrimary"] = "primaryWeapon",
+    ["equipSecondary"] = "secondaryWeapon",
+    ["equipKnife"] = "currentKnife"
+}
+for packetName, dataKey in pairs(equipPackets) do
+    local packet = InventoryPackets[packetName]
+    if packet and packet.send and not packet.__OT_hooked then
+        local origSend = packet.send
+        packet.send = function(value)
+            pcall(origSend, value)
+            updateDataAndCharacter(dataKey, value)
+        end
+        packet.__OT_hooked = true
+    end
+end
+
+-- Silent aim (upvalue indices may need adjustment if the game updates)
+local fireUpvalues = { pcall(debug.getupvalues, WeaponClient.fire, 1) }
+if fireUpvalues[1] then
+    local fireNetSend = fireUpvalues[2]
+    if fireNetSend then
+        local netSendUpvalues = { pcall(debug.getupvalues, fireNetSend, 14) }
+        local netSend = netSendUpvalues[2]
+        if netSend and type(netSend) == "table" and netSend.send then
+            local origSend = netSend.send
+            if not origSend.__OT_hooked then
+                netSend.send = function(args)
+                    if OT_cfg.silentAim and type(args) == "table" then
+                        local bestTarget = nil
+                        local bestDist = 900
+                        for _, otherChar in ipairs(CollectionService:GetTagged("Character")) do
+                            if otherChar ~= LocalPlayer.Character and otherChar:FindFirstChildOfClass("Humanoid") and otherChar.Humanoid.Health > 0 and otherChar:FindFirstChild("HumanoidRootPart") and not otherChar:FindFirstChild("ForceField") then
+                                local part = otherChar:FindFirstChild("Head") or otherChar.HumanoidRootPart
+                                local screenPos, onScreen = Camera:WorldToViewportPoint(part.Position)
+                                if onScreen then
+                                    local dist = (Vector2.new(screenPos.X, screenPos.Y) - Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)).Magnitude
+                                    if dist < bestDist then
+                                        bestDist = dist
+                                        bestTarget = otherChar
+                                    end
+                                end
+                            end
+                        end
+                        if bestTarget then
+                            local hitPart = bestTarget:FindFirstChild("Head") or bestTarget.HumanoidRootPart
+                            local myHead = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Head")
+                            local origin = myHead and myHead.Position or args.origin
+                            args.hitResult = true
+                            args.hitPart = hitPart
+                            args.position = hitPart.Position
+                            args.origin = origin
+                            args.direction = (hitPart.Position - origin).Unit
+                            args.scoped = true
+                            args.quickscope = true
+                        end
+                    end
+                    return origSend(args)
+                end
+                origSend.__OT_hooked = true
+            end
+        end
+    end
+end
+
+-- Fast fire/reload
+local DEFAULT_RELOAD_TIME = WeaponManager.Constants.DEFAULT_RELOAD_TIME
+local DEFAULT_PISTOL_RELOAD_TIME = WeaponManager.Constants.DEFAULT_PISTOL_RELOAD_TIME
+if not WeaponManager.__OT_hooked then
+    WeaponManager.__OT_origConstants = {DEFAULT_RELOAD_TIME, DEFAULT_PISTOL_RELOAD_TIME}
+    local origGetWeaponData = WeaponManager.getWeaponData
+    WeaponManager.getWeaponData = function(self, weaponName)
+        local data = origGetWeaponData(self, weaponName)
+        if (OT_cfg.fastFire or OT_cfg.fastReload) and type(data) == "table" then
+            local newData = table.clone(data)
+            if OT_cfg.fastFire then
+                newData.firerate = 40
+            end
+            if OT_cfg.fastReload then
+                newData.reloadTime = 0.05
+            end
+            return newData
+        end
+        return data
+    end
+    WeaponManager.__OT_hooked = true
+end
+
+-- Infinite ammo
+if WeaponClient.decreaseBullets and not WeaponClient.__OT_ammoHooked then
+    local origDecrease = WeaponClient.decreaseBullets
+    WeaponClient.decreaseBullets = function(...)
+        if OT_cfg.infiniteAmmo then return end
+        return origDecrease(...)
+    end
+    WeaponClient.__OT_ammoHooked = true
+end
+
+-- No recoil
+if ViewmodelClient.shoot and not ViewmodelClient.__OT_recoilHooked then
+    local origShoot = ViewmodelClient.shoot
+    ViewmodelClient.shoot = function(...)
+        if OT_cfg.noRecoil then
+            local upvals = { pcall(debug.getupvalues, origShoot) }
+            local upvalsTable = upvals[2]
+            if upvalsTable then
+                for _, val in ipairs(upvalsTable) do
+                    if type(val) == "table" and typeof(val.Velocity) == "Vector3" and typeof(val.Position) == "Vector3" and typeof(val.Target) == "Vector3" then
+                        val.Velocity = Vector3.new()
+                        val.Position = Vector3.new()
+                        val.Target = Vector3.new()
+                    end
+                end
+            end
+        end
+        return origShoot(...)
+    end
+    ViewmodelClient.__OT_recoilHooked = true
+end
+
+-- Helper to check if character is valid (alive, no forcefield)
+local function isValidTarget(char)
+    if not char then return false end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    return hum and hum.Health > 0 and char:FindFirstChild("HumanoidRootPart") and not char:FindFirstChild("ForceField")
+end
+
+-- Aim key state
+local isAiming = false
+UserInputService.InputBegan:Connect(function(input)
+    if input.KeyCode == OT_cfg.aimHoldKey or input.UserInputType == Enum.UserInputType.MouseButton2 then
+        isAiming = true
+    end
+end)
+UserInputService.InputEnded:Connect(function(input)
+    if input.KeyCode == OT_cfg.aimHoldKey or input.UserInputType == Enum.UserInputType.MouseButton2 then
+        isAiming = false
+    end
+end)
+pcall(function() ContextActionService:UnbindAction("OT_AimHold") end)
+ContextActionService:BindActionAtPriority("OT_AimHold", function(actionName, inputState)
+    if inputState == Enum.UserInputState.Begin then
+        isAiming = true
+    elseif inputState == Enum.UserInputState.End then
+        isAiming = false
+    end
+    return Enum.ContextActionResult.Pass
+end, false, 3000, OT_cfg.aimHoldKey)
+
+-- Aimbot 
+getgenv().OT_AimLoop = RunService.RenderStepped:Connect(function(deltaTime)
+    if not OT_cfg.aimEnabled or not isAiming or not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+        return
+    end
+    local myChar = LocalPlayer.Character
+    local fov = OT_cfg.aimFov
+    local center = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)
+    local closestDist = fov
+    local closestTarget = nil
+    local closestPart = nil
+
+    for _, otherChar in ipairs(CollectionService:GetTagged("Character")) do
+        if otherChar ~= myChar and isValidTarget(otherChar) then
+            local part = otherChar:FindFirstChild(OT_cfg.aimPart) or otherChar.HumanoidRootPart
+            if part then
+                local screenPos, onScreen = Camera:WorldToViewportPoint(part.Position)
+                if onScreen then
+                    local dist = (Vector2.new(screenPos.X, screenPos.Y) - center).Magnitude
+                    if dist < closestDist then
+                        if OT_cfg.aimWallCheck then
+                            local params = RaycastParams.new()
+                            params.FilterDescendantsInstances = {myChar, Camera:FindFirstChild("Viewmodel")}
+                            params.FilterType = Enum.RaycastFilterType.Blacklist
+                            local rayResult = workspace:Raycast(Camera.CFrame.Position, (part.Position - Camera.CFrame.Position).Unit * 1000, params)
+                            if rayResult and rayResult.Instance:IsDescendantOf(otherChar) then
+                                closestDist = dist
+                                closestTarget = otherChar
+                                closestPart = part
+                            end
+                        else
+                            closestDist = dist
+                            closestTarget = otherChar
+                            closestPart = part
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    if closestTarget then
+        local targetPos = closestPart.Position
+        local newCF = CFrame.new(Camera.CFrame.Position, targetPos)
+        Camera.CFrame = Camera.CFrame:Lerp(newCF, math.clamp(OT_cfg.aimSmooth / 100 * deltaTime * 60, 0, 1))
+    end
+end)
+
+-- ESP and Chams management
+local espObjects = {}
+local chamObjects = {}
+local hitboxExpanded = {}  -- stores { originalSize, indicator }
+
+local function removeESP(char)
+    local obj = espObjects[char]
+    if obj then
+        pcall(function() obj.hi:Destroy() end)
+        pcall(function() obj.bb:Destroy() end)
+        espObjects[char] = nil
+    end
+end
+
+local function removeChams(char)
+    local obj = chamObjects[char]
+    if obj then
+        pcall(function() obj:Destroy() end)
+        chamObjects[char] = nil
+    end
+end
+
+local lastESPUpdate = 0
+getgenv().OT_ESPLoop = RunService.Heartbeat:Connect(function()
+    if tick() < lastESPUpdate then return end
+    lastESPUpdate = tick() + 0.12
+
+    if not OT_cfg.espEnabled and not OT_cfg.chams and not OT_cfg.hitboxExpand then return end
+    local myChar = LocalPlayer.Character
+    if not myChar then return end
+
+    local seenChars = {}
+    local characters = CollectionService:GetTagged("Character")
+    for _, char in ipairs(characters) do
+        -- FIXED: removed "and not Players:GetPlayerFromCharacter(char)" to enable ESP on all characters (players + NPCs)
+        if char ~= myChar and isValidTarget(char) then
+            seenChars[char] = true
+            local player = Players:GetPlayerFromCharacter(char)
+
+            -- ESP (Highlight + Billboard)
+            if OT_cfg.espEnabled then
+                if not espObjects[char] then
+                    local highlight = Instance.new("Highlight")
+                    highlight.Name = "OT_ESP"
+                    highlight.FillTransparency = 0.7
+                    highlight.OutlineTransparency = 0
+                    -- Player: green, Bot: orange
+                    highlight.FillColor = player and Color3.fromRGB(60, 255, 60) or Color3.fromRGB(255, 180, 60)
+                    highlight.OutlineColor = Color3.new(1, 1, 1)
+                    highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                    highlight.Parent = char
+
+                    local billboard = Instance.new("BillboardGui")
+                    billboard.Size = UDim2.new(0, 180, 0, 30)
+                    billboard.StudsOffset = Vector3.new(0, 3, 0)
+                    billboard.AlwaysOnTop = true
+                    billboard.Parent = char
+
+                    local label = Instance.new("TextLabel")
+                    label.BackgroundTransparency = 1
+                    label.Size = UDim2.new(1, 0, 1, 0)
+                    label.TextColor3 = Color3.new(1, 1, 1)
+                    label.Font = Enum.Font.GothamBold
+                    label.TextSize = 13
+                    label.TextStrokeTransparency = 0
+                    label.Parent = billboard
+
+                    espObjects[char] = {hi = highlight, bb = billboard, lbl = label}
+                end
+                -- Build ESP text
+                local info = {}
+                if player then
+                    if OT_cfg.espName then table.insert(info, player.Name) end
+                    if OT_cfg.espHealth then
+                        local hum = char:FindFirstChildOfClass("Humanoid")
+                        if hum then
+                            table.insert(info, string.format("[%d]", math.ceil(hum.Health)))
+                        end
+                    end
+                else
+                    table.insert(info, char.Name .. " [BOT]")
+                end
+                if OT_cfg.espDistance then
+                    local hrp = char:FindFirstChild("HumanoidRootPart")
+                    if hrp then
+                        local dist = (hrp.Position - Camera.CFrame.Position).Magnitude
+                        table.insert(info, string.format("%dm", dist))
+                    end
+                end
+                espObjects[char].lbl.Text = table.concat(info, "  ")
+            end
+
+            -- Chams
+            if OT_cfg.chams then
+                if not chamObjects[char] then
+                    local highlight = Instance.new("Highlight")
+                    highlight.FillTransparency = 0.25
+                    highlight.OutlineTransparency = 0
+                    highlight.FillColor = player and Color3.fromRGB(60, 255, 60) or Color3.fromRGB(255, 150, 0)
+                    highlight.OutlineColor = Color3.fromRGB(0, 0, 0)
+                    highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                    highlight.Parent = char
+                    chamObjects[char] = highlight
+                end
+            end
+
+            -- Hitbox expander (now works on all characters)
+            if OT_cfg.hitboxExpand then
+                local head = char:FindFirstChild("Head")
+                if head and head:IsA("BasePart") then
+                    if not hitboxExpanded[head] then
+                        hitboxExpanded[head] = {
+                            originalSize = head.Size,
+                            indicator = nil
+                        }
+                    end
+                    local data = hitboxExpanded[head]
+                    head.Size = data.originalSize * OT_cfg.hitboxExpandMultiplier
+
+                    if not data.indicator then
+                        local sphere = Instance.new("Part")
+                        sphere.Name = "OT_HitboxIndicator"
+                        sphere.Shape = Enum.PartType.Ball
+                        sphere.Anchored = true
+                        sphere.CanCollide = false
+                        sphere.Transparency = 0.5
+                        sphere.Color = Color3.new(1, 1, 1)
+                        sphere.Material = Enum.Material.SmoothPlastic
+                        sphere.Parent = head
+                        data.indicator = sphere
+                    end
+                    data.indicator.Size = head.Size
+                end
+            end
+        end
+    end
+
+    -- Remove ESP/Chams for characters no longer seen
+    for char, _ in pairs(espObjects) do
+        if not seenChars[char] then
+            removeESP(char)
+        end
+    end
+    for char, _ in pairs(chamObjects) do
+        if not seenChars[char] then
+            removeChams(char)
+        end
+    end
+    -- Restore hitbox sizes and destroy indicators for non‑seen heads
+    for head, data in pairs(hitboxExpanded) do
+        if not seenChars[head.Parent] then
+            pcall(function()
+                head.Size = data.originalSize
+                if data.indicator then data.indicator:Destroy() end
+            end)
+            hitboxExpanded[head] = nil
+        end
+    end
+end)
+
+-- Triggerbot
+local lastTrigger = 0
+getgenv().OT_TriggerLoop = RunService.Heartbeat:Connect(function()
+    if not OT_cfg.triggerbot then return end
+    local char = LocalPlayer.Character
+    if not char or not char:GetAttribute("deployed") or not isValidTarget(char) then return end
+    if tick() - lastTrigger < 0.1 then return end
+
+    local ignore = {char}
+    local viewmodel = Camera:FindFirstChild("Viewmodel")
+    if viewmodel then table.insert(ignore, viewmodel) end
+
+    local rayParams = RaycastParams.new()
+    rayParams.FilterDescendantsInstances = ignore
+    rayParams.FilterType = Enum.RaycastFilterType.Blacklist
+
+    local rayResult = workspace:Raycast(Camera.CFrame.Position, Camera.CFrame.LookVector * 800, rayParams)
+    if not rayResult then return end
+
+    local hitInstance = rayResult.Instance
+    local targetModel = hitInstance:FindFirstAncestorOfClass("Model")
+    if targetModel and isValidTarget(targetModel) and CollectionService:HasTag(targetModel, "Character") then
+        lastTrigger = tick()
+        pcall(WeaponClient.fire)
+    end
+end)
+
+-- FOV circle
+if Drawing then
+    local fovCircle = Drawing.new("Circle")
+    fovCircle.Thickness = 1
+    fovCircle.NumSides = 60
+    fovCircle.Color = Color3.fromRGB(255, 255, 255)
+    fovCircle.Filled = false
+    fovCircle.Transparency = 0.9
+    fovCircle.Visible = false
+
+    getgenv().OT_FOVLoop = RunService.RenderStepped:Connect(function()
+        fovCircle.Visible = OT_cfg.fovCircle
+        fovCircle.Radius = OT_cfg.aimFov
+        fovCircle.Position = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)
+    end)
+end
+
+-- Third person
+local originalCameraMode = LocalPlayer.CameraMode
+local originalMinZoom = LocalPlayer.CameraMinZoomDistance
+local originalMaxZoom = LocalPlayer.CameraMaxZoomDistance
+
+getgenv().OT_ThirdLoop = RunService.Heartbeat:Connect(function()
+    if OT_cfg.thirdPerson then
+        if LocalPlayer.CameraMode ~= Enum.CameraMode.Classic then
+            LocalPlayer.CameraMode = Enum.CameraMode.Classic
+        end
+        LocalPlayer.CameraMinZoomDistance = 0.5
+        LocalPlayer.CameraMaxZoomDistance = 30
+    else
+        if LocalPlayer.CameraMode ~= originalCameraMode then
+            LocalPlayer.CameraMode = originalCameraMode
+        end
+        LocalPlayer.CameraMinZoomDistance = originalMinZoom
+        LocalPlayer.CameraMaxZoomDistance = originalMaxZoom
+    end
+end)
+
+-- Speed/Jump modification – FIXED: single loop that updates current character
+getgenv().OT_SpeedLoop = RunService.Heartbeat:Connect(function()
+    local char = LocalPlayer.Character
+    if not char then return end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not hum then return end
+    if OT_cfg.speedBoost then
+        hum.WalkSpeed = OT_cfg.walkSpeed
+    else
+        hum.WalkSpeed = 16
+    end
+    if OT_cfg.jumpBoost then
+        hum.JumpPower = OT_cfg.jumpPower
+    else
+        hum.JumpPower = 50
+    end
+end)
+
+-- Infinite jump
+UserInputService.JumpRequest:Connect(function()
+    if OT_cfg.infiniteJump and LocalPlayer.Character then
+        LocalPlayer.Character.Humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+    end
+end)
+
+-- Anti AFK
+LocalPlayer.Idled:Connect(function()
+    if OT_cfg.antiAfk then
+        local vu = game:GetService("VirtualUser")
+        vu:CaptureController()
+        vu:ClickButton2(Vector2.new())
+    end
+end)
+
+-- Re-apply skin attributes on respawn
+LocalPlayer.CharacterAdded:Connect(function(char)
+    task.wait(0.15)
+    if OT_Snapshot.primaryWeapon then
+        pcall(function() char:SetAttribute("primaryWeapon", OT_Snapshot.primaryWeapon) end)
+    end
+    if OT_Snapshot.secondaryWeapon then
+        pcall(function() char:SetAttribute("secondaryWeapon", OT_Snapshot.secondaryWeapon) end)
+    end
+    if OT_Snapshot.currentKnife then
+        pcall(function() char:SetAttribute("knifeName", OT_Snapshot.currentKnife) end)
+    end
+    -- Re-sync data to Data module
+    for k, v in pairs(OT_Snapshot) do
+        if v then
+            Data.Data[k] = v
+        end
+    end
+end)
+
+-- Function to update stats and notify
+local function updateStat(key, value)
+    local old = Data.Data[key]
+    Data.Data[key] = value
+    fireDataChanged(key, value, old)
+end
+
+-- Pinned stats (persistent over server sync)
+getgenv().OT_Pinned = getgenv().OT_Pinned or {}
+
+-- Auto-reinject loop (checks if items lost, re-inject)
+getgenv().OT_Housekeep = task.spawn(function()
+    while true do
+        task.wait(1)
+        -- Re-apply pinned stats
+        for key, value in pairs(getgenv().OT_Pinned) do
+            if Data.Data[key] ~= value then
+                updateStat(key, value)
+            end
+        end
+        -- Auto deploy
+        if OT_cfg.autoDeploy then
+            local char = LocalPlayer.Character
+            if char and not char:GetAttribute("deployed") then
+                pcall(function() MainGamePackets.deploy.send() end)
+            end
+        end
+        -- Auto vote
+        if OT_cfg.autoVote then
+            local state = workspace:GetAttribute("gameState")
+            if state and state ~= "game" then
+                pcall(function() MainGamePackets.voteMap.send(math.random(1, 3)) end)
+                pcall(function() MainGamePackets.voteGamemode.send(math.random(1, 3)) end)
+            end
+        end
+        -- Auto re-inject items if lost
+        if OT_cfg.autoReinject and getgenv().OT_UnlockedTotal then
+            local currentCount = #Data.Data.primaries + #Data.Data.secondaries + #Data.Data.knives + #Data.Data.killEffects + #Data.Data.nametags
+            if currentCount < getgenv().OT_UnlockedTotal - 5 then
+                -- Re-unlock all
+                local function contains(t, v)
+                    for _, item in ipairs(t) do if item == v then return true end end
+                    return false
+                end
+                -- Unlock weapons
+                for name, data in pairs(WeaponManager.getWeapons()) do
+                    local list = type(data) == "table" and data.isPistol and Data.Data.secondaries or Data.Data.primaries
+                    if not contains(list, name) then
+                        table.insert(list, name)
+                    end
+                end
+                -- Unlock knives
+                for _, knife in ipairs(WeaponManager.getKnives()) do
+                    if not contains(Data.Data.knives, knife) then
+                        table.insert(Data.Data.knives, knife)
+                    end
+                end
+                -- Unlock kill effects
+                if KillEffectManager.getKillEffects then
+                    for _, effect in ipairs(KillEffectManager.getKillEffects()) do
+                        if not contains(Data.Data.killEffects, effect) then
+                            table.insert(Data.Data.killEffects, effect)
+                        end
+                    end
+                end
+                -- Unlock nametags
+                if NametagManager.getNametags then
+                    for _, tag in ipairs(NametagManager.getNametags()) do
+                        if not contains(Data.Data.nametags, tag) then
+                            table.insert(Data.Data.nametags, tag)
+                        end
+                    end
+                end
+            end
+        end
+    end
+end)
+
+-- UI using Obsidian (from flee)
+local repo = "https://raw.githubusercontent.com/deividcomsono/Obsidian/main/"
+local Library = loadstring(game:HttpGet(repo .. "Library.lua"))()
+local ThemeManager = loadstring(game:HttpGet(repo .. "addons/ThemeManager.lua"))()
+local SaveManager = loadstring(game:HttpGet(repo .. "addons/SaveManager.lua"))()
+local Options = Library.Options
+local Toggles = Library.Toggles
+
+Library.ForceCheckbox = false
+Library.ShowToggleFrameInKeybinds = true
+
+-- Cleanup previous Obsidian instances
+if getgenv().OT_Obsidian_Library then
+    pcall(function() getgenv().OT_Obsidian_Library:Unload() end)
+end
+getgenv().OT_Obsidian_Library = Library
+
+local Window = Library:CreateWindow({
+    Title = "Fishy Hub",
+    Footer = "[FPS] One Tap",
+    NotifySide = "Right",
+    ShowCustomCursor = false,
+})
+
+local Tabs = {
+    Combat = Window:AddTab("Aimbot & Gun Mods", "crosshair"),
+    Movement = Window:AddTab("Character Mods", "person-running"),
+    Visuals = Window:AddTab("ESP & Rendering", "eye"),
+    Skins = Window:AddTab("Inventory Spoofing", "shirt"),
+    Stats = Window:AddTab("Stat Modifiers", "chart-simple"),
+    Misc = Window:AddTab("Utility & Automation", "settings"),
+    UISettings = Window:AddTab("UI Settings", "wrench"),
+}
+
+-- Combat tab
+local AimGroup = Tabs.Combat:AddLeftGroupbox("Aimbot Settings", "crosshair")
+AimGroup:AddToggle("AimLock", {Text = "Enable Aimbot", Default = OT_cfg.aimEnabled, Callback = function(v) OT_cfg.aimEnabled = v end})
+AimGroup:AddToggle("WallCheck", {Text = "Visible Only (Wall Check)", Default = OT_cfg.aimWallCheck, Callback = function(v) OT_cfg.aimWallCheck = v end})
+AimGroup:AddDropdown("AimPart", {Values = {"Head", "Torso", "HumanoidRootPart"}, Default = OT_cfg.aimPart or "Head", Text = "Hitbox", Callback = function(v) OT_cfg.aimPart = v end})
+AimGroup:AddSlider("AimFOV", {Text = "Field of View", Default = OT_cfg.aimFov, Min = 20, Max = 500, Rounding = 0, Suffix = "", Callback = function(v) OT_cfg.aimFov = v end})
+AimGroup:AddSlider("AimSmooth", {Text = "Smoothing", Default = OT_cfg.aimSmooth, Min = 1, Max = 100, Rounding = 0, Suffix = "", Callback = function(v) OT_cfg.aimSmooth = v end})
+
+local AdvCombatGroup = Tabs.Combat:AddRightGroupbox("Silent & Trigger", "shield")
+AdvCombatGroup:AddToggle("SilentAim", {Text = "Enable Silent Aim", Default = OT_cfg.silentAim, Callback = function(v) OT_cfg.silentAim = v end})
+AdvCombatGroup:AddToggle("Triggerbot", {Text = "Enable Triggerbot", Default = OT_cfg.triggerbot, Callback = function(v) OT_cfg.triggerbot = v end})
+
+local WeaponGroup = Tabs.Combat:AddRightGroupbox("Gun Modifications", "gun")
+WeaponGroup:AddToggle("NoRecoil", {Text = "Disable Recoil", Default = OT_cfg.noRecoil, Callback = function(v) OT_cfg.noRecoil = v end})
+WeaponGroup:AddToggle("FastReload", {Text = "Instant Reload", Default = OT_cfg.fastReload, Callback = function(v) OT_cfg.fastReload = v end})
+WeaponGroup:AddToggle("FastFire", {Text = "Rapid Fire", Default = OT_cfg.fastFire, Callback = function(v) OT_cfg.fastFire = v end})
+WeaponGroup:AddToggle("InfiniteAmmo", {Text = "Unlimited Ammo", Default = OT_cfg.infiniteAmmo, Callback = function(v) OT_cfg.infiniteAmmo = v end})
+WeaponGroup:AddToggle("HitboxExpander", {Text = "Expand Hitboxes", Default = OT_cfg.hitboxExpand, Callback = function(v)
+    OT_cfg.hitboxExpand = v
+    if not v then
+        for head, data in pairs(hitboxExpanded) do
+            pcall(function()
+                head.Size = data.originalSize
+                if data.indicator then data.indicator:Destroy() end
+            end)
+        end
+        table.clear(hitboxExpanded)
+    end
+end})
+WeaponGroup:AddSlider("HitboxMultiplier", {Text = "Hitbox Size Multiplier", Default = OT_cfg.hitboxExpandMultiplier, Min = 1, Max = 5, Rounding = 1, Suffix = "x", Callback = function(v) OT_cfg.hitboxExpandMultiplier = v end})
+
+-- Movement tab
+local SpeedGroup = Tabs.Movement:AddLeftGroupbox("Speed Adjustments", "bolt")
+SpeedGroup:AddToggle("SpeedBoost", {Text = "Enable Speed Hack", Default = OT_cfg.speedBoost, Callback = function(v) OT_cfg.speedBoost = v end})
+SpeedGroup:AddSlider("WalkSpeed", {Text = "Walk Speed Amount", Default = OT_cfg.walkSpeed, Min = 16, Max = 120, Rounding = 0, Callback = function(v) OT_cfg.walkSpeed = v end})
+
+local JumpGroup = Tabs.Movement:AddRightGroupbox("Jump Adjustments", "arrow-up")
+JumpGroup:AddToggle("JumpBoost", {Text = "Enable Jump Boost", Default = OT_cfg.jumpBoost, Callback = function(v) OT_cfg.jumpBoost = v end})
+JumpGroup:AddSlider("JumpPower", {Text = "Jump Power Amount", Default = OT_cfg.jumpPower, Min = 50, Max = 300, Rounding = 0, Callback = function(v) OT_cfg.jumpPower = v end})
+JumpGroup:AddToggle("InfiniteJump", {Text = "Enable Infinite Jump", Default = OT_cfg.infiniteJump, Callback = function(v) OT_cfg.infiniteJump = v end})
+
+-- Visuals tab
+local ESPGroup = Tabs.Visuals:AddLeftGroupbox("Player ESP", "eye")
+ESPGroup:AddToggle("PlayerESP", {Text = "Enable ESP", Default = OT_cfg.espEnabled, Callback = function(v) OT_cfg.espEnabled = v end})
+ESPGroup:AddToggle("ESPName", {Text = "Display Names", Default = OT_cfg.espName, Callback = function(v) OT_cfg.espName = v end})
+ESPGroup:AddToggle("ESPHealth", {Text = "Display Health", Default = OT_cfg.espHealth, Callback = function(v) OT_cfg.espHealth = v end})
+ESPGroup:AddToggle("ESPDistance", {Text = "Display Distance", Default = OT_cfg.espDistance, Callback = function(v) OT_cfg.espDistance = v end})
+
+local VisExtraGroup = Tabs.Visuals:AddRightGroupbox("Extra Visuals", "star")
+VisExtraGroup:AddToggle("Chams", {Text = "Enable Chams", Default = OT_cfg.chams, Callback = function(v) OT_cfg.chams = v end})
+VisExtraGroup:AddToggle("FOVCircle", {Text = "Draw FOV Circle", Default = OT_cfg.fovCircle, Callback = function(v) OT_cfg.fovCircle = v end})
+VisExtraGroup:AddToggle("ThirdPerson", {Text = "Force Third Person", Default = OT_cfg.thirdPerson, Callback = function(v) OT_cfg.thirdPerson = v end})
+
+-- Skins tab
+local SkinsGroup = Tabs.Skins:AddLeftGroupbox("Unlock All Skins Visual", "shirt")
+SkinsGroup:AddLabel("Visual only. Skins will not save to your account.")
+SkinsGroup:AddButton("Spoof All Skins", function()
+    local function contains(t, v)
+        for _, item in ipairs(t) do if item == v then return true end end
+        return false
+    end
+    local added = 0
+    for name, data in pairs(WeaponManager.getWeapons()) do
+        local list = type(data) == "table" and data.isPistol and Data.Data.secondaries or Data.Data.primaries
+        if not contains(list, name) then
+            table.insert(list, name)
+            added = added + 1
+        end
+    end
+    for _, knife in ipairs(WeaponManager.getKnives()) do
+        if not contains(Data.Data.knives, knife) then
+            table.insert(Data.Data.knives, knife)
+            added = added + 1
+        end
+    end
+    if KillEffectManager.getKillEffects then
+        for _, effect in ipairs(KillEffectManager.getKillEffects()) do
+            if not contains(Data.Data.killEffects, effect) then
+                table.insert(Data.Data.killEffects, effect)
+                added = added + 1
+            end
+        end
+    end
+    if NametagManager.getNametags then
+        for _, tag in ipairs(NametagManager.getNametags()) do
+            if not contains(Data.Data.nametags, tag) then
+                table.insert(Data.Data.nametags, tag)
+                added = added + 1
+            end
+        end
+    end
+    local total = #Data.Data.primaries + #Data.Data.secondaries + #Data.Data.knives + #Data.Data.killEffects + #Data.Data.nametags
+    getgenv().OT_UnlockedTotal = total
+    Library:Notify(string.format("Successfully spoofed %d new items (Total: %d)", added, total), 4)
+end)
+SkinsGroup:AddToggle("AutoReinject", {Text = "Auto Re-spoof on Sync", Default = OT_cfg.autoReinject, Callback = function(v) OT_cfg.autoReinject = v end})
+
+-- Stats tab
+local StatsGroup = Tabs.Stats:AddLeftGroupbox("Modify Currency (Local)", "chart-simple")
+StatsGroup:AddLabel("Visual only. Changes will not save to your account.")
+local function createStatInput(name, dataKey)
+    StatsGroup:AddInput(name .. "Input", {
+        Default = tostring(Data.Data[dataKey] or 0),
+        Numeric = true,
+        Finished = false,
+        Text = name,
+        Tooltip = "Press Enter to apply",
+        Placeholder = tostring(Data.Data[dataKey] or 0),
+        Callback = function(text)
+            local num = tonumber(text)
+            if not num then return end
+            updateStat(dataKey, num)
+            getgenv().OT_Pinned[dataKey] = num
+            Library:Notify(string.format("Spoofed %s to %d", name, num), 2)
+        end
+    })
+end
+createStatInput("Money", "money")
+createStatInput("Gems", "gems")
+createStatInput("Level", "level")
+createStatInput("XP", "xp")
+StatsGroup:AddButton("Unpin All Stats", function()
+    getgenv().OT_Pinned = {}
+    Library:Notify("Cleared all pinned stat modifiers", 2)
+end)
+
+-- Misc tab
+local MiscGroup = Tabs.Misc:AddLeftGroupbox("Game Automation", "settings")
+MiscGroup:AddToggle("AutoDeploy", {Text = "Auto Deploy on Spawn", Default = OT_cfg.autoDeploy, Callback = function(v) OT_cfg.autoDeploy = v end})
+MiscGroup:AddToggle("AntiAFK", {Text = "Prevent AFK Kick", Default = OT_cfg.antiAfk, Callback = function(v) OT_cfg.antiAfk = v end})
+MiscGroup:AddToggle("AutoVote", {Text = "Auto Vote Random Map/Mode", Default = OT_cfg.autoVote, Callback = function(v) OT_cfg.autoVote = v end})
+MiscGroup:AddButton("Unload Interface", function() pcall(function() Library:Unload() end) end)
+
+-- UI Settings
+local MenuGroup = Tabs.UISettings:AddLeftGroupbox("Menu", "wrench")
+MenuGroup:AddToggle("KeybindMenuOpen", { Default = Library.KeybindFrame.Visible, Text = "Open Keybind Menu", Callback = function(value) Library.KeybindFrame.Visible = value end })
+MenuGroup:AddToggle("ShowCustomCursor", { Text = "Custom Cursor", Default = true, Callback = function(Value) Library.ShowCustomCursor = Value end })
+MenuGroup:AddDropdown("NotificationSide", { Values = { "Left", "Right" }, Default = "Right", Text = "Notification Side", Callback = function(Value) Library:SetNotifySide(Value) end })
+MenuGroup:AddDropdown("DPIDropdown", { Values = { "50%", "75%", "100%", "125%", "150%", "175%", "200%" }, Default = "100%", Text = "DPI Scale", Callback = function(Value) Value = Value:gsub("%%", ""); local DPI = tonumber(Value); Library:SetDPIScale(DPI) end })
+MenuGroup:AddDivider()
+MenuGroup:AddLabel("Menu bind"):AddKeyPicker("MenuKeybind", { Default = "RightShift", NoUI = true, Text = "Menu keybind" })
+MenuGroup:AddButton("Unload", function() Library:Unload() end)
+
+Library.ToggleKeybind = Options.MenuKeybind
+ThemeManager:SetLibrary(Library)
+SaveManager:SetLibrary(Library)
+SaveManager:IgnoreThemeSettings()
+SaveManager:SetIgnoreIndexes({ "MenuKeybind" })
+ThemeManager:SetFolder("LilZekisOneTap")
+SaveManager:SetFolder("LilZekisOneTap/Main")
+SaveManager:BuildConfigSection(Tabs.UISettings)
+ThemeManager:ApplyToTab(Tabs.UISettings)
+SaveManager:LoadAutoloadConfig()
+
+-- Mobile/Screen Toggle Button
+local ToggleGui = Instance.new("ScreenGui")
+ToggleGui.Name = "OTToggleUI"
+ToggleGui.ResetOnSpawn = false
+ToggleGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+
+local success = pcall(function() ToggleGui.Parent = game:GetService("CoreGui") end)
+if not success then ToggleGui.Parent = LocalPlayer:WaitForChild("PlayerGui") end
+
+local ToggleBtn = Instance.new("TextButton")
+ToggleBtn.Parent = ToggleGui
+ToggleBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+ToggleBtn.BorderColor3 = Color3.fromRGB(60, 60, 60)
+ToggleBtn.Position = UDim2.new(0, 15, 0.5, -25)
+ToggleBtn.Size = UDim2.new(0, 50, 0, 50)
+ToggleBtn.Font = Enum.Font.SourceSansBold
+ToggleBtn.Text = "One Tap"
+ToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+ToggleBtn.TextSize = 14
+ToggleBtn.BackgroundTransparency = 0.2
+
+local UICorner = Instance.new("UICorner")
+UICorner.CornerRadius = UDim.new(0, 10)
+UICorner.Parent = ToggleBtn
+
+local dragging = false
+local dragInput, dragStart, startPos
+
+ToggleBtn.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true
+        dragStart = input.Position
+        startPos = ToggleBtn.Position
+        
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                dragging = false
+            end
+        end)
+    end
+end)
+
+ToggleBtn.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+        dragInput = input
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if input == dragInput and dragging then
+        local delta = input.Position - dragStart
+        ToggleBtn.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+    end
+end)
+
+ToggleBtn.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        if dragStart and (input.Position - dragStart).Magnitude < 5 then
+            if type(Library.Toggle) == "function" then
+                Library:Toggle()
+            else
+                pcall(function() Library:ToggleUI() end)
+            end
+        end
+    end
+end)
+
+Library:OnUnload(function()
+    if ToggleGui then ToggleGui:Destroy() end
+    print("Fishy Unloaded")
+end)
+
+print("Fishy Hub")
