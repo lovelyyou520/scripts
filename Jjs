@@ -1,0 +1,782 @@
+-- ============================================================
+-- JUJUTSU SHENANIGANS STANDALONE MODULE
+-- Snowy Studios / Snowy Hub Standalone Release (Obsidian UI)
+-- Place ID: 9391468976 | Universe ID: 3508322461
+-- ============================================================
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local Workspace = game:GetService("Workspace")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+
+local repo = "https://raw.githubusercontent.com/deividcomsono/Obsidian/main/"
+local Library = loadstring(game:HttpGet(repo .. "Library.lua"))()
+local ThemeManager = loadstring(game:HttpGet(repo .. "addons/ThemeManager.lua"))()
+local SaveManager = loadstring(game:HttpGet(repo .. "addons/SaveManager.lua"))()
+local Options = Library.Options
+local Toggles = Library.Toggles
+
+Library.ForceCheckbox = false
+Library.ShowToggleFrameInKeybinds = true
+
+local Window = Library:CreateWindow({
+    Title = "Fishy Hub",
+    Footer = "Jujutsu Shenanigans",
+    NotifySide = "Right",
+    ShowCustomCursor = false,
+})
+
+local Tabs = {
+    Movement = Window:AddTab("Movement", "run"),
+    Combat = Window:AddTab("Combat", "swords"),
+    Visuals = Window:AddTab("Visuals & Utils", "eye"),
+    UISettings = Window:AddTab("UI Settings", "wrench"),
+}
+
+local JJSMove = Tabs.Movement:AddLeftGroupbox("Movement Features")
+local JJSCombat = Tabs.Combat:AddLeftGroupbox("Combat Features")
+local JJSUtils = Tabs.Visuals:AddLeftGroupbox("Visuals & Utilities")
+
+local function GetChar()
+    local c = LocalPlayer.Character
+    return c, c and c:FindFirstChild("HumanoidRootPart"), c and c:FindFirstChildOfClass("Humanoid")
+end
+
+-- ====================
+-- MOVEMENT FEATURES
+-- ====================
+local flyEnabled = false
+local flySpeed = 80
+local flyBody, flyGyro
+local flyConnection = nil
+
+local function StartFly()
+    local char, hrp = GetChar()
+    if not hrp then return end
+    if flyBody then pcall(function() flyBody:Destroy() end) end
+    if flyGyro then pcall(function() flyGyro:Destroy() end) end
+
+    flyBody = Instance.new("BodyVelocity")
+    flyBody.MaxForce = Vector3.new(1e8, 1e8, 1e8)
+    flyBody.Velocity = Vector3.zero
+    flyBody.Parent = hrp
+
+    flyGyro = Instance.new("BodyGyro")
+    flyGyro.MaxTorque = Vector3.new(1e8, 1e8, 1e8)
+    flyGyro.D = 200
+    flyGyro.P = 10000
+    flyGyro.Parent = hrp
+
+    local UIS = game:GetService("UserInputService")
+    local Camera = workspace.CurrentCamera
+    
+    if flyConnection then pcall(function() flyConnection:Disconnect() end) end
+    flyConnection = game:GetService("RunService").RenderStepped:Connect(function()
+        if not flyEnabled then return end
+        local cam = Camera
+        local dir = Vector3.zero
+        if UIS:IsKeyDown(Enum.KeyCode.W) then dir = dir + cam.CFrame.LookVector end
+        if UIS:IsKeyDown(Enum.KeyCode.S) then dir = dir - cam.CFrame.LookVector end
+        if UIS:IsKeyDown(Enum.KeyCode.A) then dir = dir - cam.CFrame.RightVector end
+        if UIS:IsKeyDown(Enum.KeyCode.D) then dir = dir + cam.CFrame.RightVector end
+        if UIS:IsKeyDown(Enum.KeyCode.Space) then dir = dir + Vector3.yAxis end
+        if UIS:IsKeyDown(Enum.KeyCode.LeftControl) then dir = dir - Vector3.yAxis end
+        flyBody.Velocity = (dir.Magnitude > 0 and dir.Unit or Vector3.zero) * flySpeed
+        flyGyro.CFrame = cam.CFrame
+    end)
+end
+
+local function StopFly()
+    if flyConnection then
+        flyConnection:Disconnect()
+        flyConnection = nil
+    end
+    local _, hrp = GetChar()
+    if hrp then
+        for _, v in ipairs(hrp:GetChildren()) do
+            if v:IsA("BodyVelocity") or v:IsA("BodyGyro") then v:Destroy() end
+        end
+    end
+    flyBody, flyGyro = nil, nil
+end
+
+local noclipEnabled = false
+local noclipConnection = nil
+
+local function StartNoclip()
+    if noclipConnection then return end
+    noclipConnection = game:GetService("RunService").Stepped:Connect(function()
+        if not noclipEnabled then return end
+        local char = LocalPlayer.Character
+        if char then
+            for _, p in ipairs(char:GetDescendants()) do
+                if p:IsA("BasePart") then p.CanCollide = false end
+            end
+        end
+    end)
+end
+
+local function StopNoclip()
+    if noclipConnection then
+        noclipConnection:Disconnect()
+        noclipConnection = nil
+    end
+end
+
+local infJumpEnabled = false
+local infJumpConnection = nil
+
+local function StartInfJump()
+    if infJumpConnection then return end
+    infJumpConnection = game:GetService("UserInputService").JumpRequest:Connect(function()
+        if not infJumpEnabled then return end
+        local _, _, hum = GetChar()
+        if hum then hum:ChangeState(Enum.HumanoidStateType.Jumping) end
+    end)
+end
+
+local function StopInfJump()
+    if infJumpConnection then
+        infJumpConnection:Disconnect()
+        infJumpConnection = nil
+    end
+end
+
+local speedEnabled = false
+local speedValue = 80
+local speedConnection = nil
+
+local function StartSpeed()
+    if speedConnection then return end
+    speedConnection = game:GetService("RunService").Heartbeat:Connect(function()
+        if not speedEnabled then return end
+        local _, _, hum = GetChar()
+        if hum then hum.WalkSpeed = speedValue end
+    end)
+end
+
+local function StopSpeed()
+    if speedConnection then
+        speedConnection:Disconnect()
+        speedConnection = nil
+    end
+    local _, _, hum = GetChar()
+    if hum then hum.WalkSpeed = 16 end
+end
+
+JJSMove:AddToggle("FlyToggle", {
+    Text = "Fly Hack",
+    Default = false,
+    Tooltip = "Fly around the map freely",
+    Callback = function(state)
+        flyEnabled = state
+        if state then StartFly() else StopFly() end
+    end
+})
+
+JJSMove:AddSlider("FlySpeedSlider", {
+    Text = "Fly Speed",
+    Default = 80,
+    Min = 0,
+    Max = 500,
+    Rounding = 0,
+    Callback = function(value)
+        flySpeed = value
+    end
+})
+
+JJSMove:AddToggle("SpeedToggle", {
+    Text = "Speed Hack",
+    Default = false,
+    Tooltip = "Run faster",
+    Callback = function(state)
+        speedEnabled = state
+        if state then StartSpeed() else StopSpeed() end
+    end
+})
+
+JJSMove:AddSlider("SpeedSlider", {
+    Text = "WalkSpeed Value",
+    Default = 80,
+    Min = 16,
+    Max = 500,
+    Rounding = 0,
+    Callback = function(value)
+        speedValue = value
+    end
+})
+
+JJSMove:AddToggle("NoclipToggle", {
+    Text = "Noclip",
+    Default = false,
+    Tooltip = "Walk through objects and walls",
+    Callback = function(state)
+        noclipEnabled = state
+        if state then StartNoclip() else StopNoclip() end
+    end
+})
+
+JJSMove:AddToggle("InfJumpToggle", {
+    Text = "Infinite Jump",
+    Default = false,
+    Tooltip = "Jump infinitely in mid-air",
+    Callback = function(state)
+        infJumpEnabled = state
+        if state then StartInfJump() else StopInfJump() end
+    end
+})
+
+-- ====================
+-- COMBAT FEATURES
+-- ====================
+local lockOnEnabled = false
+local orbitRadius = 8
+local orbitSpeed = 12
+local orbitAngle = 0
+local lockTarget = nil
+local orbitConnection = nil
+
+local function GetNearestPlayer()
+    local _, hrp = GetChar()
+    if not hrp then return nil end
+    local closest, dist = nil, math.huge
+    for _, p in ipairs(game.Players:GetPlayers()) do
+        if p ~= LocalPlayer and p.Character then
+            local ehrp = p.Character:FindFirstChild("HumanoidRootPart")
+            local ehum = p.Character:FindFirstChildOfClass("Humanoid")
+            if ehrp and ehum and ehum.Health > 0 then
+                local d = (ehrp.Position - hrp.Position).Magnitude
+                if d < dist then dist = d; closest = p end
+            end
+        end
+    end
+    return closest
+end
+
+local function StartOrbit()
+    if orbitConnection then return end
+    orbitConnection = game:GetService("RunService").RenderStepped:Connect(function(dt)
+        if not lockOnEnabled then return end
+
+        local _, hrp, hum = GetChar()
+        if not hrp or not hum then return end
+
+        if not lockTarget or not lockTarget.Character or not lockTarget.Character:FindFirstChild("HumanoidRootPart") then
+            lockTarget = GetNearestPlayer()
+        end
+        if not lockTarget then return end
+
+        local targetHRP = lockTarget.Character:FindFirstChild("HumanoidRootPart")
+        local targetHum = lockTarget.Character:FindFirstChildOfClass("Humanoid")
+        if not targetHRP or not targetHum or targetHum.Health <= 0 then
+            lockTarget = nil
+            return
+        end
+
+        orbitAngle = orbitAngle + (orbitSpeed * dt * 2 * math.pi)
+        if orbitAngle > 2 * math.pi then orbitAngle = orbitAngle - 2 * math.pi end
+
+        local targetPos = targetHRP.Position
+        local orbitPos = targetPos + Vector3.new(
+            math.cos(orbitAngle) * orbitRadius,
+            2,
+            math.sin(orbitAngle) * orbitRadius
+        )
+
+        local lookAt = CFrame.lookAt(orbitPos, targetPos)
+        hrp.CFrame = lookAt
+        hrp.Velocity = Vector3.zero
+        hrp.AssemblyLinearVelocity = Vector3.zero
+    end)
+end
+
+local function StopOrbit()
+    if orbitConnection then
+        orbitConnection:Disconnect()
+        orbitConnection = nil
+    end
+    lockTarget = nil
+end
+
+local hitboxEnabled = false
+local hitboxSize = 15
+local hitboxConnection = nil
+
+local function StartHitbox()
+    if hitboxConnection then return end
+    hitboxConnection = game:GetService("RunService").Heartbeat:Connect(function()
+        if not hitboxEnabled then return end
+        for _, p in ipairs(game.Players:GetPlayers()) do
+            if p ~= LocalPlayer and p.Character then
+                local ehrp = p.Character:FindFirstChild("HumanoidRootPart")
+                if ehrp then
+                    ehrp.Size = Vector3.new(hitboxSize, hitboxSize, hitboxSize)
+                    ehrp.Transparency = 0.7
+                end
+            end
+        end
+    end)
+end
+
+local function StopHitbox()
+    if hitboxConnection then
+        hitboxConnection:Disconnect()
+        hitboxConnection = nil
+    end
+    for _, p in ipairs(game.Players:GetPlayers()) do
+        if p ~= LocalPlayer and p.Character then
+            local ehrp = p.Character:FindFirstChild("HumanoidRootPart")
+            if ehrp then
+                ehrp.Size = Vector3.new(2, 2, 1)
+                ehrp.Transparency = 0
+            end
+        end
+    end
+end
+
+local autoParryEnabled = false
+local autoParryConnection = nil
+
+local function StartAutoParry()
+    if autoParryConnection then return end
+    local VirtualInputManager = game:GetService("VirtualInputManager")
+    autoParryConnection = game:GetService("RunService").Heartbeat:Connect(function()
+        if not autoParryEnabled then return end
+        local _, hrp = GetChar()
+        if not hrp then return end
+
+        for _, p in ipairs(game.Players:GetPlayers()) do
+            if p ~= LocalPlayer and p.Character then
+                local ehrp = p.Character:FindFirstChild("HumanoidRootPart")
+                local ehum = p.Character:FindFirstChildOfClass("Humanoid")
+                if ehrp and ehum and ehum.Health > 0 then
+                    local dist = (ehrp.Position - hrp.Position).Magnitude
+                    if dist < 20 then
+                        local animator = p.Character:FindFirstChildOfClass("Animator", true) or
+                                         (p.Character:FindFirstChild("Humanoid") and p.Character.Humanoid:FindFirstChildOfClass("Animator"))
+                        if animator then
+                            for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
+                                local n = track.Name:lower()
+                                if n:find("punch") or n:find("kick") or n:find("attack") or
+                                   n:find("hit") or n:find("slam") or n:find("strike") or
+                                   n:find("domain") or n:find("cursed") or n:find("slash") then
+                                    pcall(function()
+                                        VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.F, false, game)
+                                        task.delay(0.3, function()
+                                            VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.F, false, game)
+                                        end)
+                                    end)
+                                    break
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end)
+end
+
+local function StopAutoParry()
+    if autoParryConnection then
+        autoParryConnection:Disconnect()
+        autoParryConnection = nil
+    end
+end
+
+local killAuraEnabled = false
+local killAuraConnection = nil
+
+local function StartKillAura()
+    if killAuraConnection then return end
+    killAuraConnection = game:GetService("RunService").Heartbeat:Connect(function()
+        if not killAuraEnabled then return end
+        local _, hrp = GetChar()
+        if not hrp then return end
+
+        for _, p in ipairs(game.Players:GetPlayers()) do
+            if p ~= LocalPlayer and p.Character then
+                local ehrp = p.Character:FindFirstChild("HumanoidRootPart")
+                if ehrp and (ehrp.Position - hrp.Position).Magnitude < 25 then
+                    pcall(function() if mouse1click then mouse1click() end end)
+                end
+            end
+        end
+    end)
+end
+
+local function StopKillAura()
+    if killAuraConnection then
+        killAuraConnection:Disconnect()
+        killAuraConnection = nil
+    end
+end
+
+JJSCombat:AddToggle("OrbitToggle", {
+    Text = "Orbital Lock-On",
+    Default = false,
+    Tooltip = "Orbit around nearest target",
+    Callback = function(state)
+        lockOnEnabled = state
+        if state then StartOrbit() else StopOrbit() end
+    end
+})
+
+JJSCombat:AddSlider("OrbitRadiusSlider", {
+    Text = "Orbit Radius",
+    Default = 8,
+    Min = 3,
+    Max = 20,
+    Rounding = 0,
+    Callback = function(value)
+        orbitRadius = value
+    end
+})
+
+JJSCombat:AddSlider("OrbitSpeedSlider", {
+    Text = "Orbit Speed",
+    Default = 12,
+    Min = 1,
+    Max = 30,
+    Rounding = 0,
+    Callback = function(value)
+        orbitSpeed = value
+    end
+})
+
+JJSCombat:AddToggle("HitboxToggle", {
+    Text = "Hitbox Expander",
+    Default = false,
+    Tooltip = "Increase size of enemy hitboxes",
+    Callback = function(state)
+        hitboxEnabled = state
+        if state then StartHitbox() else StopHitbox() end
+    end
+})
+
+JJSCombat:AddSlider("HitboxSizeSlider", {
+    Text = "Hitbox Size",
+    Default = 15,
+    Min = 2,
+    Max = 30,
+    Rounding = 0,
+    Callback = function(value)
+        hitboxSize = value
+    end
+})
+
+JJSCombat:AddToggle("AutoParryToggle", {
+    Text = "Auto Parry",
+    Default = false,
+    Tooltip = "Automatically block incoming attacks",
+    Callback = function(state)
+        autoParryEnabled = state
+        if state then StartAutoParry() else StopAutoParry() end
+    end
+})
+
+JJSCombat:AddToggle("KillAuraToggle", {
+    Text = "Kill Aura",
+    Default = false,
+    Tooltip = "Automatically attack nearby players",
+    Callback = function(state)
+        killAuraEnabled = state
+        if state then StartKillAura() else StopKillAura() end
+    end
+})
+
+-- ====================
+-- VISUALS & UTILITIES
+-- ====================
+local espEnabled = false
+local espObjects = {}
+local espConnection = nil
+
+local function UpdateESP()
+    for _, obj in pairs(espObjects) do
+        if obj then pcall(function() obj:Destroy() end) end
+    end
+    espObjects = {}
+
+    if not espEnabled then return end
+
+    -- Temporary theme colors since ThemeManager doesn't expose them exactly like SnowyLib
+    local C_accent = Color3.fromRGB(0, 170, 255)
+    local C_on = Color3.fromRGB(0, 255, 0)
+    local C_orange = Color3.fromRGB(255, 170, 0)
+    local C_red = Color3.fromRGB(255, 0, 0)
+
+    for _, p in ipairs(game.Players:GetPlayers()) do
+        if p ~= LocalPlayer and p.Character then
+            local head = p.Character:FindFirstChild("Head")
+            local hum = p.Character:FindFirstChildOfClass("Humanoid")
+            if head and hum then
+                local bill = Instance.new("BillboardGui")
+                bill.Name = "SnowyJJS_ESP"
+                bill.Adornee = head
+                bill.Size = UDim2.new(0, 200, 0, 50)
+                bill.StudsOffset = Vector3.new(0, 3, 0)
+                bill.AlwaysOnTop = true
+                bill.Parent = head
+
+                local name = Instance.new("TextLabel", bill)
+                name.Size = UDim2.new(1, 0, 0.5, 0)
+                name.BackgroundTransparency = 1
+                name.Text = p.DisplayName
+                name.TextColor3 = C_accent
+                name.TextSize = 14
+                name.Font = Enum.Font.GothamBold
+                name.TextStrokeTransparency = 0.3
+
+                local info = Instance.new("TextLabel", bill)
+                info.Size = UDim2.new(1, 0, 0.5, 0)
+                info.Position = UDim2.new(0, 0, 0.5, 0)
+                info.BackgroundTransparency = 1
+                info.TextColor3 = hum.Health > 50 and C_on or (hum.Health > 25 and C_orange or C_red)
+                info.TextSize = 11
+                info.Font = Enum.Font.GothamMedium
+                info.TextStrokeTransparency = 0.3
+
+                task.spawn(function()
+                    while espEnabled and bill and bill.Parent do
+                        local _, hrp = GetChar()
+                        local ehrp = p.Character and p.Character:FindFirstChild("HumanoidRootPart")
+                        local eh = p.Character and p.Character:FindFirstChildOfClass("Humanoid")
+                        if hrp and ehrp and eh then
+                            local dist = math.floor((hrp.Position - ehrp.Position).Magnitude)
+                            info.Text = string.format("HP: %d/%d | %dm", math.floor(eh.Health), math.floor(eh.MaxHealth), dist)
+                            info.TextColor3 = eh.Health > 50 and C_on or (eh.Health > 25 and C_orange or C_red)
+                        end
+                        task.wait(0.25)
+                    end
+                end)
+
+                table.insert(espObjects, bill)
+            end
+        end
+    end
+end
+
+local function StartESP()
+    espEnabled = true
+    UpdateESP()
+    if not espConnection then
+        espConnection = {}
+        table.insert(espConnection, game.Players.PlayerAdded:Connect(function()
+            if espEnabled then task.wait(2) UpdateESP() end
+        end))
+        table.insert(espConnection, game.Players.PlayerRemoving:Connect(function()
+            if espEnabled then task.wait(0.5) UpdateESP() end
+        end))
+    end
+end
+
+local function StopESP()
+    espEnabled = false
+    if espConnection then
+        for _, conn in ipairs(espConnection) do conn:Disconnect() end
+        espConnection = nil
+    end
+    for _, obj in pairs(espObjects) do
+        if obj then pcall(function() obj:Destroy() end) end
+    end
+    espObjects = {}
+end
+
+local antiRagEnabled = false
+local antiRagConnection = nil
+
+local function StartAntiRag()
+    if antiRagConnection then return end
+    antiRagConnection = game:GetService("RunService").Heartbeat:Connect(function()
+        if not antiRagEnabled then return end
+        local char = LocalPlayer.Character
+        if not char then return end
+        for _, v in ipairs(char:GetDescendants()) do
+            if v:IsA("BallSocketConstraint") or v:IsA("HingeConstraint") then
+                v.Enabled = false
+            end
+        end
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if hum then
+            hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+        end
+    end)
+end
+
+local function StopAntiRag()
+    if antiRagConnection then
+        antiRagConnection:Disconnect()
+        antiRagConnection = nil
+    end
+end
+
+local godEnabled = false
+local godConnection = nil
+
+local function StartGod()
+    if godConnection then return end
+    godConnection = game:GetService("RunService").Heartbeat:Connect(function()
+        if not godEnabled then return end
+        local _, _, hum = GetChar()
+        if hum then hum.Health = hum.MaxHealth end
+    end)
+end
+
+local function StopGod()
+    if godConnection then
+        godConnection:Disconnect()
+        godConnection = nil
+    end
+end
+
+JJSUtils:AddToggle("ESPToggle", {
+    Text = "Player ESP",
+    Default = false,
+    Tooltip = "Show player positions and HP",
+    Callback = function(state)
+        if state then StartESP() else StopESP() end
+    end
+})
+
+JJSUtils:AddButton({
+    Text = "TP to Nearest Player",
+    Func = function()
+        local target = GetNearestPlayer()
+        if target and target.Character then
+            local ehrp = target.Character:FindFirstChild("HumanoidRootPart")
+            local _, hrp = GetChar()
+            if ehrp and hrp then hrp.CFrame = ehrp.CFrame * CFrame.new(0, 0, 5) end
+        end
+    end,
+    DoubleClick = false,
+    Tooltip = "Teleport next to the nearest player"
+})
+
+JJSUtils:AddToggle("AntiRagToggle", {
+    Text = "Anti-Ragdoll",
+    Default = false,
+    Tooltip = "Prevent being ragdolled or knocked down",
+    Callback = function(state)
+        antiRagEnabled = state
+        if state then StartAntiRag() else StopAntiRag() end
+    end
+})
+
+JJSUtils:AddToggle("GodToggle", {
+    Text = "God Mode",
+    Default = false,
+    Tooltip = "Keep health at maximum value",
+    Callback = function(state)
+        godEnabled = state
+        if state then StartGod() else StopGod() end
+    end
+})
+
+JJSUtils:AddButton({
+    Text = "Rejoin Server",
+    Func = function()
+        game:GetService("TeleportService"):Teleport(game.PlaceId, LocalPlayer)
+    end,
+    DoubleClick = false,
+    Tooltip = "Re-teleport to the current server"
+})
+
+-- ====================
+-- UI SETTINGS
+-- ====================
+local MenuGroup = Tabs.UISettings:AddLeftGroupbox("Menu")
+MenuGroup:AddToggle("KeybindMenuOpen", { Default = Library.KeybindFrame.Visible, Text = "Open Keybind Menu", Callback = function(value) Library.KeybindFrame.Visible = value end })
+MenuGroup:AddToggle("ShowCustomCursor", { Text = "Custom Cursor", Default = true, Callback = function(Value) Library.ShowCustomCursor = Value end })
+MenuGroup:AddDropdown("NotificationSide", { Values = { "Left", "Right" }, Default = "Right", Text = "Notification Side", Callback = function(Value) Library:SetNotifySide(Value) end })
+MenuGroup:AddDropdown("DPIDropdown", { Values = { "50%", "75%", "100%", "125%", "150%", "175%", "200%" }, Default = "100%", Text = "DPI Scale", Callback = function(Value) Value = Value:gsub("%%", ""); local DPI = tonumber(Value); Library:SetDPIScale(DPI) end })
+MenuGroup:AddDivider()
+MenuGroup:AddLabel("Menu bind"):AddKeyPicker("MenuKeybind", { Default = "RightShift", NoUI = true, Text = "Menu keybind" })
+MenuGroup:AddButton({
+    Text = "Unload",
+    Func = function() Library:Unload() end
+})
+
+Library.ToggleKeybind = Options.MenuKeybind
+ThemeManager:SetLibrary(Library)
+SaveManager:SetLibrary(Library)
+SaveManager:IgnoreThemeSettings()
+SaveManager:SetIgnoreIndexes({ "MenuKeybind" })
+ThemeManager:SetFolder("JujutsuShenanigans")
+SaveManager:SetFolder("JujutsuShenanigans/Main")
+SaveManager:BuildConfigSection(Tabs.UISettings)
+ThemeManager:ApplyToTab(Tabs.UISettings)
+SaveManager:LoadAutoloadConfig()
+
+-- Mobile/Screen Toggle Button
+local ToggleGui = Instance.new("ScreenGui")
+ToggleGui.Name = "JJSToggleUI"
+ToggleGui.ResetOnSpawn = false
+ToggleGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+
+local success = pcall(function() ToggleGui.Parent = game:GetService("CoreGui") end)
+if not success then ToggleGui.Parent = LocalPlayer:WaitForChild("PlayerGui") end
+
+local ToggleBtn = Instance.new("TextButton")
+ToggleBtn.Parent = ToggleGui
+ToggleBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+ToggleBtn.BorderColor3 = Color3.fromRGB(60, 60, 60)
+ToggleBtn.Position = UDim2.new(0, 15, 0.5, -25)
+ToggleBtn.Size = UDim2.new(0, 50, 0, 50)
+ToggleBtn.Font = Enum.Font.SourceSansBold
+ToggleBtn.Text = "JJS"
+ToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+ToggleBtn.TextSize = 18
+ToggleBtn.BackgroundTransparency = 0.2
+
+local UICorner = Instance.new("UICorner")
+UICorner.CornerRadius = UDim.new(0, 10)
+UICorner.Parent = ToggleBtn
+
+local dragging = false
+local dragInput, dragStart, startPos
+
+ToggleBtn.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true
+        dragStart = input.Position
+        startPos = ToggleBtn.Position
+        
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                dragging = false
+            end
+        end)
+    end
+end)
+
+ToggleBtn.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+        dragInput = input
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if input == dragInput and dragging then
+        local delta = input.Position - dragStart
+        ToggleBtn.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+    end
+end)
+
+ToggleBtn.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        if dragStart and (input.Position - dragStart).Magnitude < 5 then
+            if type(Library.Toggle) == "function" then
+                Library:Toggle()
+            else
+                pcall(function() Library:ToggleUI() end)
+            end
+        end
+    end
+end)
+
+Library:OnUnload(function()
+    if ToggleGui then ToggleGui:Destroy() end
+end)
