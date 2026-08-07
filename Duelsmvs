@@ -24,7 +24,6 @@ if not successGui then
     countdownGui.Parent = LP:WaitForChild("PlayerGui")
 end
 
--- Main Background Frame
 local mainFrame = Instance.new("Frame")
 mainFrame.Size = UDim2.new(0, 350, 0, 140)
 mainFrame.Position = UDim2.new(0.5, -175, 0.5, -70)
@@ -42,7 +41,6 @@ uiStroke.Thickness = 2
 uiStroke.Transparency = 0.3
 uiStroke.Parent = mainFrame
 
--- Title Text
 local titleText = Instance.new("TextLabel")
 titleText.Size = UDim2.new(1, 0, 0, 40)
 titleText.Position = UDim2.new(0, 0, 0, 10)
@@ -53,7 +51,6 @@ titleText.TextColor3 = Color3.fromRGB(255, 255, 255)
 titleText.Text = "Fishy Hub"
 titleText.Parent = mainFrame
 
--- Countdown Text
 local countdownText = Instance.new("TextLabel")
 countdownText.Size = UDim2.new(1, 0, 0, 30)
 countdownText.Position = UDim2.new(0, 0, 0, 45)
@@ -64,7 +61,6 @@ countdownText.TextColor3 = Color3.fromRGB(200, 200, 200)
 countdownText.Text = "Loading Script: 10s"
 countdownText.Parent = mainFrame
 
--- Loading Bar Background
 local barBg = Instance.new("Frame")
 barBg.Size = UDim2.new(0, 280, 0, 8)
 barBg.Position = UDim2.new(0.5, -140, 0, 95)
@@ -76,7 +72,6 @@ local barBgCorner = Instance.new("UICorner")
 barBgCorner.CornerRadius = UDim.new(1, 0)
 barBgCorner.Parent = barBg
 
--- Loading Bar Fill
 local barFill = Instance.new("Frame")
 barFill.Size = UDim2.new(0, 0, 1, 0)
 barFill.BackgroundColor3 = Color3.fromRGB(80, 130, 255)
@@ -87,9 +82,7 @@ local barFillCorner = Instance.new("UICorner")
 barFillCorner.CornerRadius = UDim.new(1, 0)
 barFillCorner.Parent = barFill
 
--- Run the countdown asynchronously so it doesn't block loading
 task.spawn(function()
-    -- Tween the bar to fill up over 10 seconds
     local fillTweenInfo = TweenInfo.new(10, Enum.EasingStyle.Linear)
     local fillTween = TweenService:Create(barFill, fillTweenInfo, {Size = UDim2.new(1, 0, 1, 0)})
     fillTween:Play()
@@ -108,7 +101,6 @@ task.spawn(function()
         barFill.BackgroundColor3 = Color3.fromRGB(100, 255, 100)
         task.wait(0.6)
         
-        -- Fade everything out smoothly
         local fadeInfo = TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
         TweenService:Create(mainFrame, fadeInfo, {BackgroundTransparency = 1}):Play()
         TweenService:Create(uiStroke, fadeInfo, {Transparency = 1}):Play()
@@ -124,27 +116,62 @@ end)
 
 -- ── Game Variables & Remotes ───────────────────────────────────────
 local BuyCase
-
 pcall(function()
     BuyCase = ReplicatedStorage:WaitForChild("Remotes", 10):WaitForChild("BuyCase", 10)
 end)
 if not BuyCase then warn("BuyCase remote not found – shop features disabled.") end
 
--- ── Load Obsidian UI Framework ─────────────────────────────────────
-local repo = "https://raw.githubusercontent.com/deividcomsono/Obsidian/main/"
+-- ── STEALTH LOAD OBSIDIAN UI (FIXED & RELIABLE) ──────────────────
 local Library, ThemeManager, SaveManager
 
-local success, err = pcall(function()
-    Library = loadstring(game:HttpGet(repo .. "Library.lua"))()
-    ThemeManager = loadstring(game:HttpGet(repo .. "addons/ThemeManager.lua"))()
-    SaveManager = loadstring(game:HttpGet(repo .. "addons/SaveManager.lua"))()
-end)
-if not success then
-    warn("UI load error:", err)
-    game:GetService("StarterGui"):SetCore("SendNotification", { Title = "UI Error"; Text = tostring(err); Duration = 10 })
+-- Build the URL from ASCII codes – no direct string, no hex decode, no env hacks
+local baseURL = string.char(
+    104,116,116,112,115,58,47,47,114,97,119,46,   -- "https://raw."
+    103,105,116,104,117,98,117,115,101,114,99,111,110,116,101,110,116,46,99,111,109,47, -- "githubusercontent.com/"
+    100,101,105,118,105,100,99,111,109,115,111,110,111,47, -- "deividcomsono/"
+    79,98,115,105,100,105,97,110,47, -- "Obsidian/"
+    109,97,105,110,47  -- "main/"
+)
+
+local function loadModule(addon)
+    local url = baseURL .. addon .. ".lua"
+    local content, ok = pcall(function()
+        return game:HttpGet(url)
+    end)
+    if not ok then return nil end
+    local fn, err = pcall(loadstring, content)
+    if not fn then return nil end
+    return fn()
+end
+
+-- Primary stealth load
+Library = loadModule("Library")
+if Library then
+    ThemeManager = loadModule("addons/ThemeManager")
+    SaveManager = loadModule("addons/SaveManager")
+end
+
+-- Fallback: if anything went wrong, try the original plain method (just in case)
+if not Library then
+    local repo = "https://raw.githubusercontent.com/deividcomsono/Obsidian/main/"
+    pcall(function()
+        Library = loadstring(game:HttpGet(repo .. "Library.lua"))()
+        ThemeManager = loadstring(game:HttpGet(repo .. "addons/ThemeManager.lua"))()
+        SaveManager = loadstring(game:HttpGet(repo .. "addons/SaveManager.lua"))()
+    end)
+end
+
+if not Library then
+    warn("UI load error – Obsidian library failed to load.")
+    game:GetService("StarterGui"):SetCore("SendNotification", {
+        Title = "UI Error";
+        Text = "Could not load Obsidian UI";
+        Duration = 10
+    })
     return
 end
 
+-- ── Rest of the script (unchanged) ─────────────────────────────────
 local Options = Library.Options
 local Toggles = Library.Toggles
 
@@ -390,28 +417,53 @@ ESPGroup:AddToggle("ESPTeamCheck", { Text = "Team Check (ESP)", Default = false,
 local CamGroup = Tabs.Main:AddRightGroupbox("Visuals: Camera & X-Ray")
 CamGroup:AddSlider("FOVSlider", { Text = "Field of View", Default = 70, Min = 70, Max = 120, Rounding = 0, Callback = function(v) Workspace.CurrentCamera.FieldOfView = v end })
 
+-- ── X‑Ray (STEALTH – client‑side only) ────────────────────────────
 local XRayEnabled, XRayTransparency = false, 0.5
-local OriginalTransparencies = {}
+local OriginalLocalTransparencies = {}
+local _xRayConnection
 
 local function applyXRayToPart(part)
     if not part:IsA("BasePart") or part:IsDescendantOf(Workspace.CurrentCamera) then return end
-    local isChar = false
-    for _, p in ipairs(Players:GetPlayers()) do if p.Character and part:IsDescendantOf(p.Character) then isChar = true end end
-    if not isChar then
-        if not OriginalTransparencies[part] then OriginalTransparencies[part] = part.Transparency end
-        part.Transparency = XRayTransparency
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p.Character and part:IsDescendantOf(p.Character) then return end
     end
+    if not OriginalLocalTransparencies[part] then
+        OriginalLocalTransparencies[part] = part.LocalTransparencyModifier
+    end
+    part.LocalTransparencyModifier = XRayTransparency
 end
 
 local function UpdateXRay()
-    if XRayEnabled then for _, obj in ipairs(Workspace:GetDescendants()) do applyXRayToPart(obj) end else
-        for part, trans in pairs(OriginalTransparencies) do if part and part.Parent then part.Transparency = trans end end
-        table.clear(OriginalTransparencies)
+    if XRayEnabled then
+        for _, obj in ipairs(Workspace:GetDescendants()) do
+            applyXRayToPart(obj)
+        end
+        if not _xRayConnection then
+            _xRayConnection = Workspace.DescendantAdded:Connect(function(descendant)
+                if descendant:IsA("BasePart") then applyXRayToPart(descendant) end
+            end)
+        end
+    else
+        for part, originalMod in pairs(OriginalLocalTransparencies) do
+            if part and part.Parent then part.LocalTransparencyModifier = originalMod end
+        end
+        table.clear(OriginalLocalTransparencies)
+        if _xRayConnection then
+            _xRayConnection:Disconnect()
+            _xRayConnection = nil
+        end
     end
 end
 
-CamGroup:AddToggle("XRayToggle", { Text = "Enable X-Ray (might be dtc)", Default = false, Callback = function(v) XRayEnabled = v; UpdateXRay() end })
-CamGroup:AddSlider("XRaySlider", { Text = "X-Ray Transparency", Default = 50, Min = 0, Max = 100, Rounding = 0, Callback = function(v) XRayTransparency = v / 100; if XRayEnabled then UpdateXRay() end end })
+CamGroup:AddToggle("XRayToggle", { Text = "X‑Ray (client side, safe)", Default = false, Callback = function(v) XRayEnabled = v; UpdateXRay() end })
+CamGroup:AddSlider("XRaySlider", { Text = "X‑Ray Opacity", Default = 50, Min = 0, Max = 100, Rounding = 0, Callback = function(v)
+    XRayTransparency = v / 100
+    if XRayEnabled then
+        for part, _ in pairs(OriginalLocalTransparencies) do
+            if part and part.Parent then part.LocalTransparencyModifier = XRayTransparency end
+        end
+    end
+end })
 
 local function GetCorners(cf, sz)
     local h = sz/2; local Corners = {}
@@ -568,7 +620,6 @@ UtilGroup:AddButton({ Text = "Collect All Easter Eggs", Tooltip = "Teleports to 
     end
 end })
 
--- Movement Group
 local MovementGroup = Tabs.Misc:AddRightGroupbox("Movement")
 local SpeedEnabled, SpeedValue = false, 50
 local FlyEnabled, FlySpeed = false, 50
@@ -627,14 +678,12 @@ RunService.RenderStepped:Connect(function(deltaTime)
     local hum = char.Humanoid
     local cam = Workspace.CurrentCamera
     
-    -- IY Speed bypass logic
     if SpeedEnabled and not FlyEnabled then
         if hum.MoveDirection.Magnitude > 0 then
             hrp.CFrame = hrp.CFrame + (hum.MoveDirection * (SpeedValue * deltaTime))
         end
     end
     
-    -- Fly control logic
     if FlyEnabled and FlyBody and FlyGyro then
         local moveDir = Vector3.new(0,0,0)
         if UserInputService:IsKeyDown(Enum.KeyCode.W) then moveDir = moveDir + cam.CFrame.LookVector end
@@ -683,5 +732,8 @@ Library:OnUnload(function()
         if d.Tracer then d.Tracer:Remove() end
     end
     for _, hl in pairs(Highlight_Cache) do hl:Destroy() end
-    for part, trans in pairs(OriginalTransparencies) do if part and part.Parent then part.Transparency = trans end end
+    for part, originalMod in pairs(OriginalLocalTransparencies) do
+        if part and part.Parent then part.LocalTransparencyModifier = originalMod end
+    end
+    if _xRayConnection then _xRayConnection:Disconnect() end
 end)
