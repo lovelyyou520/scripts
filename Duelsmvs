@@ -1,8 +1,11 @@
+if not game:IsLoaded() then
+    game.Loaded:Wait()
+end
+
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local HttpService = game:GetService("HttpService")
 local TeleportService = game:GetService("TeleportService")
-local VirtualUser = game:GetService("VirtualUser")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 local UserInputService = game:GetService("UserInputService")
@@ -48,13 +51,15 @@ task.spawn(function()
 end)
 
 -- ── Countdown UI Setup ─────────────────────────────────────────────
+local hiddenUI = (gethui and gethui()) or CoreGui
+
 local countdownGui = Instance.new("ScreenGui")
 countdownGui.Name = "MVS_Countdown"
 countdownGui.IgnoreGuiInset = true
 countdownGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 
 local successGui = pcall(function() 
-    countdownGui.Parent = CoreGui 
+    countdownGui.Parent = hiddenUI 
 end)
 if not successGui then
     countdownGui.Parent = LP:WaitForChild("PlayerGui")
@@ -172,7 +177,6 @@ task.spawn(function()
     Library.ForceCheckbox = false
     Library.ShowToggleFrameInKeybinds = true
 
-    -- Window pops up instantly because library is already downloaded
     local Window = Library:CreateWindow({
         Title = "[DUELS] MvS",
         Footer = "Fishy Hub",
@@ -180,7 +184,6 @@ task.spawn(function()
         ShowCustomCursor = false,
     })
 
-    -- Slow load UI Content Waterfall Effect
     task.wait(0.2)
     local Tabs = {
         Main = Window:AddTab("Main", "swords"),
@@ -601,11 +604,15 @@ task.spawn(function()
     UtilGroup:AddButton({ Text = "Server Hop", Tooltip = "Teleports to a different server", Func = function() DoServerHop() end })
     UtilGroup:AddToggle("AntiAFK", { Text = "Anti-AFK", Default = false, Callback = function(v) 
         if v then
-            antiAfkConn = LP.Idled:Connect(function()
-                VirtualUser:Button2Down(Vector2.new(0,0), Workspace.CurrentCamera.CFrame)
-                task.wait(1)
-                VirtualUser:Button2Up(Vector2.new(0,0), Workspace.CurrentCamera.CFrame)
-            end)
+            local VirtualUser
+            pcall(function() VirtualUser = game:GetService("VirtualUser") end)
+            if VirtualUser then
+                antiAfkConn = LP.Idled:Connect(function()
+                    VirtualUser:Button2Down(Vector2.new(0,0), Workspace.CurrentCamera.CFrame)
+                    task.wait(1)
+                    VirtualUser:Button2Up(Vector2.new(0,0), Workspace.CurrentCamera.CFrame)
+                end)
+            end
         else
             if antiAfkConn then antiAfkConn:Disconnect(); antiAfkConn = nil end
         end
@@ -629,11 +636,16 @@ task.spawn(function()
     local MovementGroup = Tabs.Misc:AddRightGroupbox("Movement")
     local SpeedEnabled, SpeedValue = false, 50
     local FlyEnabled, FlySpeed = false, 50
-    local FlyBody, FlyGyro
+    
+    -- Infinite Yield style fly variables
+    local IY_FlyBody, IY_FlyGyro
+    local IY_Control = {F = 0, B = 0, L = 0, R = 0}
+    local IY_lControl = {F = 0, B = 0, L = 0, R = 0}
 
     local function CleanupFly()
-        if FlyBody then FlyBody:Destroy(); FlyBody = nil end
-        if FlyGyro then FlyGyro:Destroy(); FlyGyro = nil end
+        RunService:UnbindFromRenderStep("IY_FLY_STEP")
+        if IY_FlyBody then IY_FlyBody:Destroy(); IY_FlyBody = nil end
+        if IY_FlyGyro then IY_FlyGyro:Destroy(); IY_FlyGyro = nil end
         if LP.Character and LP.Character:FindFirstChild("Humanoid") then
             LP.Character.Humanoid.PlatformStand = false
         end
@@ -641,22 +653,45 @@ task.spawn(function()
 
     local function SetupFly()
         local char = LP.Character
-        if not char or not char:FindFirstChild("HumanoidRootPart") then return end
+        if not char or not char:FindFirstChild("HumanoidRootPart") or not char:FindFirstChild("Humanoid") then return end
         CleanupFly()
         
         local hrp = char.HumanoidRootPart
-        FlyBody = Instance.new("BodyVelocity")
-        FlyBody.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
-        FlyBody.Velocity = Vector3.new(0, 0, 0)
-        FlyBody.Parent = hrp
+        IY_FlyBody = Instance.new("BodyVelocity")
+        IY_FlyBody.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+        IY_FlyBody.Velocity = Vector3.new(0, 0, 0)
+        IY_FlyBody.Parent = hrp
         
-        FlyGyro = Instance.new("BodyGyro")
-        FlyGyro.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
-        FlyGyro.P = 10000
-        FlyGyro.CFrame = hrp.CFrame
-        FlyGyro.Parent = hrp
+        IY_FlyGyro = Instance.new("BodyGyro")
+        IY_FlyGyro.MaxTorque = Vector3.new(9e9, 9e9, 9e9)
+        IY_FlyGyro.P = 9e4
+        IY_FlyGyro.CFrame = hrp.CFrame
+        IY_FlyGyro.Parent = hrp
         
         char.Humanoid.PlatformStand = true
+        
+        RunService:BindToRenderStep("IY_FLY_STEP", 1, function()
+            if not FlyEnabled or not LP.Character or not LP.Character:FindFirstChild("HumanoidRootPart") then
+                CleanupFly()
+                return
+            end
+            
+            local currentCam = Workspace.CurrentCamera
+            if UserInputService:IsKeyDown(Enum.KeyCode.W) then IY_Control.F = FlySpeed else IY_Control.F = 0 end
+            if UserInputService:IsKeyDown(Enum.KeyCode.S) then IY_Control.B = -FlySpeed else IY_Control.B = 0 end
+            if UserInputService:IsKeyDown(Enum.KeyCode.A) then IY_Control.L = -FlySpeed else IY_Control.L = 0 end
+            if UserInputService:IsKeyDown(Enum.KeyCode.D) then IY_Control.R = FlySpeed else IY_Control.R = 0 end
+            
+            local FB = IY_Control.F + IY_Control.B
+            local LR = IY_Control.L + IY_Control.R
+            
+            if FB ~= 0 or LR ~= 0 then
+                IY_FlyBody.Velocity = ((currentCam.CFrame.LookVector * FB) + (currentCam.CFrame.RightVector * LR))
+            else
+                IY_FlyBody.Velocity = Vector3.new(0, 0, 0)
+            end
+            IY_FlyGyro.CFrame = currentCam.CFrame
+        end)
     end
 
     MovementGroup:AddToggle("SpeedToggle", { Text = "Walk Speed", Default = false, Callback = function(v) SpeedEnabled = v end })
@@ -680,28 +715,12 @@ task.spawn(function()
         local char = LP.Character
         if not char or not char:FindFirstChild("HumanoidRootPart") or not char:FindFirstChild("Humanoid") then return end
         
-        local hrp = char.HumanoidRootPart
-        local hum = char.Humanoid
-        local cam = Workspace.CurrentCamera
-        
         if SpeedEnabled and not FlyEnabled then
+            local hrp = char.HumanoidRootPart
+            local hum = char.Humanoid
             if hum.MoveDirection.Magnitude > 0 then
                 hrp.CFrame = hrp.CFrame + (hum.MoveDirection * (SpeedValue * deltaTime))
             end
-        end
-        
-        if FlyEnabled and FlyBody and FlyGyro then
-            local moveDir = Vector3.new(0,0,0)
-            if UserInputService:IsKeyDown(Enum.KeyCode.W) then moveDir = moveDir + cam.CFrame.LookVector end
-            if UserInputService:IsKeyDown(Enum.KeyCode.S) then moveDir = moveDir - cam.CFrame.LookVector end
-            if UserInputService:IsKeyDown(Enum.KeyCode.A) then moveDir = moveDir - cam.CFrame.RightVector end
-            if UserInputService:IsKeyDown(Enum.KeyCode.D) then moveDir = moveDir + cam.CFrame.RightVector end
-            if UserInputService:IsKeyDown(Enum.KeyCode.Space) then moveDir = moveDir + Vector3.new(0, 1, 0) end
-            if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then moveDir = moveDir - Vector3.new(0, 1, 0) end
-            
-            if moveDir.Magnitude > 0 then moveDir = moveDir.Unit end
-            FlyBody.Velocity = moveDir * FlySpeed
-            FlyGyro.CFrame = cam.CFrame
         end
     end)
 
