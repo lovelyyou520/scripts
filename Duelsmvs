@@ -165,7 +165,7 @@ for i = 10, 1, -1 do
 end
 
 if countdownText and countdownText.Parent then
-    countdownText.Text = "Loading Complete!"
+    countdownText.Text = "Wait 10s for Anti Cheat Bypass"
     countdownText.TextColor3 = Color3.fromRGB(100, 255, 100)
     uiStroke.Color = Color3.fromRGB(100, 255, 100)
     barFill.BackgroundColor3 = Color3.fromRGB(100, 255, 100)
