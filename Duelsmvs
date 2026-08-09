@@ -2,19 +2,48 @@ if not game:IsLoaded() then
     game.Loaded:Wait()
 end
 
-local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-local HttpService = game:GetService("HttpService")
-local TeleportService = game:GetService("TeleportService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Workspace = game:GetService("Workspace")
-local UserInputService = game:GetService("UserInputService")
-local CoreGui = game:GetService("CoreGui")
-local TweenService = game:GetService("TweenService")
+-- ── SECURITY: CLONEREF & SECURE SERVICES ───────────────────────────
+-- If the executor doesn't support cloneref, it gracefully falls back
+local clref = cloneref or function(o) return o end
+
+local Players = clref(game:GetService("Players"))
+local RunService = clref(game:GetService("RunService"))
+local HttpService = clref(game:GetService("HttpService"))
+local TeleportService = clref(game:GetService("TeleportService"))
+local ReplicatedStorage = clref(game:GetService("ReplicatedStorage"))
+local Workspace = clref(game:GetService("Workspace"))
+local UserInputService = clref(game:GetService("UserInputService"))
+local CoreGui = clref(game:GetService("CoreGui"))
+local TweenService = clref(game:GetService("TweenService"))
 
 local LP = Players.LocalPlayer or Players.PlayerAdded:Wait()
+local hiddenUI = (gethui and gethui()) or CoreGui
 
--- ── BACKGROUND PRE-LOADER (Downloads UI while countdown runs) ─────
+-- Generate random strings to avoid String-Matching Anti-Cheats
+local function getRandomString()
+    return string.gsub(HttpService:GenerateGUID(false), "-", "")
+end
+local GUI_NAME = getRandomString()
+
+-- ── SECURITY: METAMETHOD HOOKING (Blinds Anti-Cheat to UI) ────────
+local hookmetamethod = hookmetamethod or function() end
+if hookmetamethod then
+    local oldNamecall
+    oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
+        local method = getnamecallmethod()
+        local args = {...}
+        
+        -- Block the game from searching for our randomized GUI name
+        if not checkcaller() and (method == "FindFirstChild" or method == "WaitForChild") then
+            if args[1] == GUI_NAME then
+                return nil
+            end
+        end
+        return oldNamecall(self, ...)
+    end))
+end
+
+-- ── BACKGROUND PRE-LOADER ──────────────────────────────────────────
 local Library, ThemeManager, SaveManager
 task.spawn(function()
     local baseURL = string.char(
@@ -51,10 +80,8 @@ task.spawn(function()
 end)
 
 -- ── Countdown UI Setup ─────────────────────────────────────────────
-local hiddenUI = (gethui and gethui()) or CoreGui
-
 local countdownGui = Instance.new("ScreenGui")
-countdownGui.Name = "MVS_Countdown"
+countdownGui.Name = GUI_NAME -- Randomized Name
 countdownGui.IgnoreGuiInset = true
 countdownGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 
@@ -66,6 +93,7 @@ if not successGui then
 end
 
 local mainFrame = Instance.new("Frame")
+mainFrame.Name = getRandomString()
 mainFrame.Size = UDim2.new(0, 350, 0, 140)
 mainFrame.Position = UDim2.new(0.5, -175, 0.5, -70)
 mainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
@@ -123,15 +151,17 @@ local barFillCorner = Instance.new("UICorner")
 barFillCorner.CornerRadius = UDim.new(1, 0)
 barFillCorner.Parent = barFill
 
-local fillTweenInfo = TweenInfo.new(10, Enum.EasingStyle.Linear)
+-- Reduced tween animation duration from 10 seconds to 1.5 seconds
+local fillTweenInfo = TweenInfo.new(1.5, Enum.EasingStyle.Linear)
 local fillTween = TweenService:Create(barFill, fillTweenInfo, {Size = UDim2.new(1, 0, 1, 0)})
 fillTween:Play()
 
+-- Fast countdown iteration (10 ticks over ~1.5s total)
 for i = 10, 1, -1 do
     if countdownText and countdownText.Parent then
         countdownText.Text = "Loading UI: " .. i .. "s"
     end
-    task.wait(1)
+    task.wait(0.15)
 end
 
 if countdownText and countdownText.Parent then
@@ -139,9 +169,9 @@ if countdownText and countdownText.Parent then
     countdownText.TextColor3 = Color3.fromRGB(100, 255, 100)
     uiStroke.Color = Color3.fromRGB(100, 255, 100)
     barFill.BackgroundColor3 = Color3.fromRGB(100, 255, 100)
-    task.wait(0.6)
+    task.wait(0.15)
     
-    local fadeInfo = TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+    local fadeInfo = TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
     TweenService:Create(mainFrame, fadeInfo, {BackgroundTransparency = 1}):Play()
     TweenService:Create(uiStroke, fadeInfo, {Transparency = 1}):Play()
     TweenService:Create(titleText, fadeInfo, {TextTransparency = 1}):Play()
@@ -149,7 +179,7 @@ if countdownText and countdownText.Parent then
     TweenService:Create(barBg, fadeInfo, {BackgroundTransparency = 1}):Play()
     TweenService:Create(barFill, fadeInfo, {BackgroundTransparency = 1}):Play()
     
-    task.wait(0.5)
+    task.wait(0.15)
 end
 countdownGui:Destroy()
 
@@ -167,7 +197,6 @@ local BuyCase
 pcall(function()
     BuyCase = ReplicatedStorage:WaitForChild("Remotes", 10):WaitForChild("BuyCase", 10)
 end)
-if not BuyCase then warn("BuyCase remote not found – shop features disabled.") end
 
 -- ── BUILD UI WITH WATERFALL LAZY LOADING ───────────────────────────
 task.spawn(function()
@@ -184,7 +213,7 @@ task.spawn(function()
         ShowCustomCursor = false,
     })
 
-    task.wait(0.2)
+    task.wait(0.03)
     local Tabs = {
         Main = Window:AddTab("Main", "swords"),
         Shop = Window:AddTab("Shop", "shopping-cart"),
@@ -249,7 +278,7 @@ task.spawn(function()
     end
 
     -- ── Main Tab: Auto Farm ───────────────────────────────────
-    task.wait(0.2)
+    task.wait(0.03)
     local FarmGroup = Tabs.Main:AddLeftGroupbox("Auto Farm")
     local afEnabled, autoServerHop = false, false
 
@@ -359,7 +388,7 @@ task.spawn(function()
     end)
 
     -- ── Main Tab: Combat ───────────────────────────────────────────
-    task.wait(0.2)
+    task.wait(0.03)
     local CombatGroup = Tabs.Main:AddLeftGroupbox("Combat: Hitbox")
     local HitboxEnabled, HitboxTeamCheck, HitboxSize, HitboxTransparency = false, false, 50, 0.7
 
@@ -401,7 +430,7 @@ task.spawn(function()
     end)
 
     -- ── Main Tab: ESP & Camera ───────────────────────────────────────
-    task.wait(0.2)
+    task.wait(0.03)
     local ESPGroup = Tabs.Main:AddRightGroupbox("Visuals: ESP")
     local EspEnabled, HighlightEnabled, JumpESPEnabled, EspTeamCheck, TracersEnabled = false, false, false, false, false
     local ESP_Cache, Highlight_Cache = {}, {}
@@ -418,7 +447,7 @@ task.spawn(function()
     end })
     ESPGroup:AddToggle("ESPTeamCheck", { Text = "Team Check (ESP)", Default = false, Callback = function(v) EspTeamCheck = v end })
 
-    task.wait(0.1)
+    task.wait(0.03)
     local CamGroup = Tabs.Main:AddRightGroupbox("Visuals: Camera & X-Ray")
     CamGroup:AddSlider("FOVSlider", { Text = "Field of View", Default = 70, Min = 70, Max = 120, Rounding = 0, Callback = function(v) Workspace.CurrentCamera.FieldOfView = v end })
 
@@ -552,7 +581,7 @@ task.spawn(function()
     end)
 
     -- ── Shop Tab ───────────────────────────────────────────────────────
-    task.wait(0.2)
+    task.wait(0.03)
     local KnivesGroup = Tabs.Shop:AddLeftGroupbox("Knives & Guns")
     local aKnife1, aKnife2, aGun1, aGun2 = false, false, false, false
 
@@ -566,7 +595,7 @@ task.spawn(function()
     KnivesGroup:AddButton({ Text = "Buy Gun Box #1 Once", Func = function() pcall(function() if BuyCase then BuyCase:InvokeServer("Gun Box #1") end end) end })
     KnivesGroup:AddButton({ Text = "Buy Gun Box #2 Once", Func = function() pcall(function() if BuyCase then BuyCase:InvokeServer("Gun Box #2") end end) end })
 
-    task.wait(0.1)
+    task.wait(0.03)
     local MythicsGroup = Tabs.Shop:AddRightGroupbox("Mythics & Config")
     local aMyth1, aMyth2, aMyth3, aMyth4, buyDelay = false, false, false, false, 1
 
@@ -597,7 +626,7 @@ task.spawn(function()
     end)
 
     -- ── Misc Tab ───────────────────────────────────────────────────────
-    task.wait(0.2)
+    task.wait(0.03)
     local UtilGroup = Tabs.Misc:AddLeftGroupbox("Utility")
     local antiAfkConn
 
@@ -605,7 +634,7 @@ task.spawn(function()
     UtilGroup:AddToggle("AntiAFK", { Text = "Anti-AFK", Default = false, Callback = function(v) 
         if v then
             local VirtualUser
-            pcall(function() VirtualUser = game:GetService("VirtualUser") end)
+            pcall(function() VirtualUser = clref(game:GetService("VirtualUser")) end)
             if VirtualUser then
                 antiAfkConn = LP.Idled:Connect(function()
                     VirtualUser:Button2Down(Vector2.new(0,0), Workspace.CurrentCamera.CFrame)
@@ -632,15 +661,13 @@ task.spawn(function()
         end
     end })
 
-    task.wait(0.1)
+    task.wait(0.03)
     local MovementGroup = Tabs.Misc:AddRightGroupbox("Movement")
     local SpeedEnabled, SpeedValue = false, 50
     local FlyEnabled, FlySpeed = false, 50
     
-    -- Infinite Yield style fly variables
     local IY_FlyBody, IY_FlyGyro
     local IY_Control = {F = 0, B = 0, L = 0, R = 0}
-    local IY_lControl = {F = 0, B = 0, L = 0, R = 0}
 
     local function CleanupFly()
         RunService:UnbindFromRenderStep("IY_FLY_STEP")
@@ -725,7 +752,7 @@ task.spawn(function()
     end)
 
     -- ── UI Settings ────────────────────────────────────────────────────
-    task.wait(0.2)
+    task.wait(0.03)
     local MenuGroup = Tabs.UISettings:AddLeftGroupbox("Menu", "wrench")
     MenuGroup:AddToggle("KeybindMenuOpen", { Default = Library.KeybindFrame.Visible, Text = "Open Keybind Menu", Callback = function(value) Library.KeybindFrame.Visible = value end })
     MenuGroup:AddToggle("ShowCustomCursor", { Text = "Custom Cursor", Default = false, Callback = function(Value) Library.ShowCustomCursor = Value end })
